@@ -1,15 +1,17 @@
 :root {
-  --red: #b11f31;
-  --white: #f4f0e8;
+  --red: #b22234;
+  --white: #ffffff;
+  --blue: #3c3b6e;
   --gold: #ffd76a;
-  --gold-hot: #ff8f45;
+  --gold-hot: #ff9a45;
   --ink: #221109;
   --skin-light: #f5c8a1;
   --skin-mid: #d89466;
   --skin-dark: #ae663e;
-  --metal-top: #5b6979;
-  --metal-mid: #2d3744;
-  --metal-low: #131922;
+  --metal-top: #626f7e;
+  --metal-mid: #313947;
+  --metal-low: #151b24;
+  --smoke: rgba(229, 238, 247, 0.34);
   --shadow: rgba(8, 4, 2, 0.34);
 }
 
@@ -25,8 +27,15 @@ body {
 
 body {
   overflow-x: hidden;
-  background: #081427;
+  background: #07111f;
   color: var(--white);
+}
+
+.asset-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
 }
 
 .app {
@@ -40,12 +49,12 @@ body {
   min-height: 100vh;
   display: grid;
   place-items: center;
-  padding: clamp(1.25rem, 4vw, 3rem);
+  padding: clamp(1rem, 4vw, 3rem);
   overflow: hidden;
   isolation: isolate;
   background:
-    radial-gradient(circle at top, rgba(255, 242, 213, 0.12), transparent 20%),
-    linear-gradient(180deg, rgba(16, 31, 60, 0.22) 0%, rgba(10, 17, 31, 0.18) 50%, rgba(10, 8, 10, 0.24) 100%);
+    radial-gradient(circle at top, rgba(255, 242, 213, 0.1), transparent 24%),
+    linear-gradient(180deg, rgba(10, 17, 31, 0.14), rgba(8, 9, 14, 0.3));
 }
 
 .scene::before {
@@ -57,7 +66,7 @@ body {
     radial-gradient(circle at 22% 32%, rgba(255, 164, 91, 0.18), transparent 20%),
     radial-gradient(circle at 78% 30%, rgba(255, 141, 81, 0.16), transparent 17%),
     linear-gradient(180deg, rgba(31, 23, 22, 0) 0%, rgba(16, 11, 11, 0.7) 36%, rgba(6, 4, 4, 0.92) 100%);
-  z-index: 1;
+  z-index: 2;
 }
 
 .scene::after {
@@ -65,7 +74,7 @@ body {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(circle at center, transparent 0 28%, rgba(7, 7, 11, 0.12) 55%, rgba(2, 4, 8, 0.62) 100%),
+    radial-gradient(circle at center, transparent 0 28%, rgba(7, 7, 11, 0.1) 56%, rgba(2, 4, 8, 0.58) 100%),
     linear-gradient(110deg, rgba(255, 255, 255, 0.08), transparent 28%),
     linear-gradient(250deg, rgba(255, 255, 255, 0.04), transparent 32%);
   pointer-events: none;
@@ -81,78 +90,70 @@ body {
 
 .flag {
   position: absolute;
-  inset: -3%;
+  inset: -4%;
   overflow: hidden;
-  background:
-    linear-gradient(90deg, #10254f 0 41%, transparent 41%),
-    repeating-linear-gradient(180deg, var(--red) 0 7.69%, var(--white) 7.69% 15.38%);
-  opacity: 0.92;
-  transform: scale(1.08);
-  animation: flag-swell 7s ease-in-out infinite;
   z-index: 0;
 }
 
-.flag::before,
-.flag::after {
-  content: "";
-  position: absolute;
-  inset: -6%;
+.flag-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  opacity: 0.98;
+  transform: scale(1.09);
+  animation: flag-swell 7s ease-in-out infinite;
 }
 
-.flag::before {
+.flag-wave,
+.flag-shadow {
+  position: absolute;
+  inset: -7%;
+  pointer-events: none;
+}
+
+.flag-wave {
+  mix-blend-mode: soft-light;
+}
+
+.flag-wave-a {
   background:
     linear-gradient(
       90deg,
-      rgba(255, 255, 255, 0.34) 0%,
-      rgba(255, 255, 255, 0.08) 10%,
-      rgba(0, 0, 0, 0.16) 24%,
-      rgba(255, 255, 255, 0.1) 36%,
-      rgba(0, 0, 0, 0.18) 52%,
-      rgba(255, 255, 255, 0.12) 68%,
-      rgba(0, 0, 0, 0.14) 84%,
+      rgba(255, 255, 255, 0.36) 0%,
+      rgba(255, 255, 255, 0.08) 9%,
+      rgba(0, 0, 0, 0.18) 20%,
+      rgba(255, 255, 255, 0.09) 34%,
+      rgba(0, 0, 0, 0.2) 48%,
+      rgba(255, 255, 255, 0.1) 64%,
+      rgba(0, 0, 0, 0.16) 80%,
       rgba(255, 255, 255, 0.12) 100%
     );
-  mix-blend-mode: soft-light;
-  animation: flag-wave 4.5s ease-in-out infinite;
+  animation: flag-wave-a 4.6s ease-in-out infinite;
 }
 
-.flag::after {
+.flag-wave-b {
   background:
-    radial-gradient(circle at 16% 44%, rgba(255, 255, 255, 0.18), transparent 18%),
-    radial-gradient(circle at 72% 32%, rgba(255, 255, 255, 0.14), transparent 16%),
-    linear-gradient(180deg, rgba(2, 4, 8, 0) 0%, rgba(2, 4, 8, 0.18) 100%);
-  opacity: 0.6;
-  animation: flag-light 3.8s ease-in-out infinite;
+    linear-gradient(
+      90deg,
+      rgba(0, 0, 0, 0.18) 0%,
+      rgba(255, 255, 255, 0.08) 14%,
+      rgba(0, 0, 0, 0.14) 30%,
+      rgba(255, 255, 255, 0.08) 44%,
+      rgba(0, 0, 0, 0.2) 62%,
+      rgba(255, 255, 255, 0.06) 82%,
+      rgba(0, 0, 0, 0.12) 100%
+    );
+  opacity: 0.65;
+  animation: flag-wave-b 6.4s ease-in-out infinite;
 }
 
-.star-field {
-  position: absolute;
-  inset: 0 auto auto 0;
-  width: 41%;
-  height: 54%;
+.flag-shadow {
   background:
-    radial-gradient(circle at 12% 16%, #fff 0 2px, transparent 2.2px),
-    radial-gradient(circle at 22% 26%, #fff 0 2px, transparent 2.2px),
-    radial-gradient(circle at 34% 14%, #fff 0 2px, transparent 2.2px),
-    radial-gradient(circle at 46% 24%, #fff 0 2px, transparent 2.2px),
-    radial-gradient(circle at 58% 16%, #fff 0 2px, transparent 2.2px),
-    radial-gradient(circle at 70% 26%, #fff 0 2px, transparent 2.2px),
-    radial-gradient(circle at 82% 18%, #fff 0 2px, transparent 2.2px),
-    radial-gradient(circle at 16% 42%, #fff 0 2px, transparent 2.2px),
-    radial-gradient(circle at 28% 52%, #fff 0 2px, transparent 2.2px),
-    radial-gradient(circle at 40% 40%, #fff 0 2px, transparent 2.2px),
-    radial-gradient(circle at 52% 52%, #fff 0 2px, transparent 2.2px),
-    radial-gradient(circle at 64% 40%, #fff 0 2px, transparent 2.2px),
-    radial-gradient(circle at 76% 52%, #fff 0 2px, transparent 2.2px),
-    radial-gradient(circle at 88% 42%, #fff 0 2px, transparent 2.2px),
-    radial-gradient(circle at 12% 70%, #fff 0 2px, transparent 2.2px),
-    radial-gradient(circle at 24% 80%, #fff 0 2px, transparent 2.2px),
-    radial-gradient(circle at 36% 68%, #fff 0 2px, transparent 2.2px),
-    radial-gradient(circle at 48% 80%, #fff 0 2px, transparent 2.2px),
-    radial-gradient(circle at 60% 68%, #fff 0 2px, transparent 2.2px),
-    radial-gradient(circle at 72% 80%, #fff 0 2px, transparent 2.2px),
-    radial-gradient(circle at 84% 70%, #fff 0 2px, transparent 2.2px);
-  opacity: 0.96;
+    radial-gradient(circle at 20% 22%, rgba(255, 255, 255, 0.16), transparent 20%),
+    radial-gradient(circle at 76% 30%, rgba(255, 255, 255, 0.12), transparent 18%),
+    linear-gradient(180deg, rgba(3, 4, 8, 0) 0%, rgba(3, 4, 8, 0.2) 100%);
+  opacity: 0.55;
+  animation: flag-glow 3.9s ease-in-out infinite;
 }
 
 .fireworks,
@@ -160,7 +161,14 @@ body {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  z-index: 2;
+}
+
+.arsenal {
+  z-index: 3;
+}
+
+.fireworks {
+  z-index: 4;
 }
 
 .content {
@@ -416,6 +424,47 @@ body {
   top: 31%;
 }
 
+.weapon-svg,
+.missile-svg,
+.tank-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+}
+
+.weapon-svg {
+  color: #171d25;
+}
+
+.missile-svg {
+  color: #c7d0d9;
+}
+
+.tank-svg {
+  color: #1d242d;
+}
+
+.weapon-svg .body,
+.missile-svg .body,
+.tank-svg .body {
+  fill: currentColor;
+}
+
+.weapon-svg .detail {
+  fill: #090d13;
+  opacity: 0.84;
+}
+
+.missile-svg .detail {
+  fill: #66717f;
+}
+
+.tank-svg .detail {
+  fill: #0d1218;
+  opacity: 0.88;
+}
+
 .burst,
 .fan,
 .missile,
@@ -467,232 +516,174 @@ body {
 .fan {
   left: 50%;
   top: 45%;
-  width: min(43vw, 440px);
-  height: 78px;
+  width: min(48vw, 520px);
+  height: 118px;
   filter: drop-shadow(0 18px 24px rgba(0, 0, 0, 0.34));
 }
 
-.fan-left {
-  transform-origin: right center;
+.fan::before,
+.fan::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  opacity: 0;
 }
 
-.fan-right {
-  transform-origin: left center;
+.fan::before {
+  width: 74px;
+  height: 74px;
+  background:
+    radial-gradient(circle, rgba(255, 255, 255, 0.92) 0 20%, rgba(255, 209, 95, 0.95) 21% 40%, rgba(255, 138, 52, 0.9) 41% 58%, rgba(255, 138, 52, 0) 59%);
+  clip-path: polygon(0 50%, 26% 36%, 18% 16%, 46% 28%, 54% 0, 64% 28%, 92% 16%, 76% 40%, 100% 50%, 76% 60%, 92% 84%, 64% 72%, 54% 100%, 46% 72%, 18% 84%, 26% 64%);
+  filter: drop-shadow(0 0 16px rgba(255, 157, 73, 0.5));
+  transform: translateY(-50%);
+}
+
+.fan::after {
+  width: 220px;
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(255, 234, 172, 0) 0%, rgba(255, 217, 118, 0.75) 22%, rgba(255, 255, 255, 1) 44%, rgba(255, 188, 88, 0.75) 70%, rgba(255, 234, 172, 0) 100%);
+  box-shadow:
+    0 -12px 0 rgba(255, 212, 114, 0.68),
+    0 12px 0 rgba(255, 212, 114, 0.62),
+    56px -6px 0 rgba(255, 255, 255, 0.45);
+  transform: translateY(-50%);
+}
+
+.fan-left .weapon-svg {
+  transform: scaleX(-1);
+}
+
+.fan-left::before {
+  left: -52px;
+}
+
+.fan-left::after {
+  left: -208px;
+}
+
+.fan-right::before {
+  right: -52px;
+}
+
+.fan-right::after {
+  right: -208px;
+  transform: translateY(-50%) scaleX(-1);
 }
 
 .fan-left.fan-rear {
   z-index: 1;
-  transform: translate(-58%, -72%) perspective(1400px) rotateY(82deg) rotateZ(-28deg) scale(0.28);
+  transform: translate(-50%, -64%) perspective(1400px) rotateY(84deg) rotateZ(-34deg) scale(0.18);
 }
 
 .fan-left.fan-mid {
   z-index: 2;
-  transform: translate(-60%, -54%) perspective(1400px) rotateY(78deg) rotateZ(-14deg) scale(0.34);
+  transform: translate(-52%, -44%) perspective(1400px) rotateY(80deg) rotateZ(-18deg) scale(0.22);
 }
 
 .fan-left.fan-front {
   z-index: 3;
-  transform: translate(-62%, -34%) perspective(1400px) rotateY(74deg) rotateZ(-2deg) scale(0.42);
+  transform: translate(-54%, -20%) perspective(1400px) rotateY(76deg) rotateZ(-4deg) scale(0.28);
 }
 
 .fan-right.fan-rear {
   z-index: 1;
-  transform: translate(8%, -72%) perspective(1400px) rotateY(-82deg) rotateZ(28deg) scale(0.28);
+  transform: translate(4%, -64%) perspective(1400px) rotateY(-84deg) rotateZ(34deg) scale(0.18);
 }
 
 .fan-right.fan-mid {
   z-index: 2;
-  transform: translate(10%, -54%) perspective(1400px) rotateY(-78deg) rotateZ(14deg) scale(0.34);
+  transform: translate(6%, -44%) perspective(1400px) rotateY(-80deg) rotateZ(18deg) scale(0.22);
 }
 
 .fan-right.fan-front {
   z-index: 3;
-  transform: translate(12%, -34%) perspective(1400px) rotateY(-74deg) rotateZ(2deg) scale(0.42);
-}
-
-.weapon {
-  position: absolute;
-  right: 0;
-  background: linear-gradient(180deg, var(--metal-top) 0%, var(--metal-mid) 50%, var(--metal-low) 100%);
-  border: 3px solid #09101a;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
-}
-
-.fan-left .weapon {
-  transform: scaleX(-1);
-}
-
-.weapon.rifle {
-  top: 12px;
-  width: 100%;
-  height: 34px;
-  clip-path: polygon(
-    0 44%,
-    17% 44%,
-    21% 12%,
-    34% 12%,
-    37% 38%,
-    72% 38%,
-    75% 28%,
-    100% 28%,
-    100% 58%,
-    76% 58%,
-    72% 47%,
-    51% 47%,
-    46% 92%,
-    30% 92%,
-    22% 58%,
-    0 58%
-  );
-}
-
-.weapon.rifle.compact {
-  top: 16px;
-  width: 84%;
-  height: 30px;
-}
-
-.weapon.rifle::before {
-  content: "";
-  position: absolute;
-  left: 30%;
-  top: 42%;
-  width: 14%;
-  height: 16%;
-  background: #09101a;
-}
-
-.weapon.gatling {
-  top: 6px;
-  right: 8%;
-  width: 78%;
-  height: 56px;
-  border-radius: 14px;
-}
-
-.weapon.gatling::before {
-  content: "";
-  position: absolute;
-  right: -54px;
-  top: 16px;
-  width: 82px;
-  height: 18px;
-  border-radius: 12px;
-  background: repeating-linear-gradient(90deg, #313d4d 0 6px, #111924 6px 9px);
-  border: 3px solid #09101a;
-}
-
-.weapon.gatling::after {
-  content: "";
-  position: absolute;
-  left: 14px;
-  bottom: -18px;
-  width: 28px;
-  height: 28px;
-  border-left: 5px solid #09101a;
-  border-bottom: 5px solid #09101a;
-  transform: rotate(-45deg);
+  transform: translate(8%, -20%) perspective(1400px) rotateY(-76deg) rotateZ(4deg) scale(0.28);
 }
 
 .missile {
   left: 50%;
   top: 38%;
-  width: clamp(112px, 12vw, 150px);
-  height: 26px;
-  background: linear-gradient(180deg, #c8d2dd, #8792a1 56%, #4f5865);
-  border: 3px solid #09101a;
-  clip-path: polygon(0 50%, 18% 0, 84% 0, 100% 50%, 84% 100%, 18% 100%);
   filter: drop-shadow(0 8px 14px rgba(0, 0, 0, 0.28));
-}
-
-.missile::before {
-  content: "";
-  position: absolute;
-  left: 18%;
-  top: -5px;
-  width: 18px;
-  height: 36px;
-  background: #5b6574;
-  clip-path: polygon(0 50%, 100% 0, 100% 100%);
 }
 
 .missile::after {
   content: "";
   position: absolute;
-  left: -22px;
-  top: 6px;
-  width: 28px;
-  height: 10px;
-  background: linear-gradient(90deg, rgba(255, 205, 104, 0), rgba(255, 205, 104, 0.95));
+  top: 50%;
+  width: 96px;
+  height: 14px;
+  border-radius: 999px;
+  opacity: 0;
+  background: linear-gradient(90deg, rgba(255, 217, 118, 0) 0%, rgba(255, 217, 118, 0.95) 36%, rgba(255, 248, 226, 1) 62%, rgba(255, 217, 118, 0) 100%);
   filter: blur(2px);
+}
+
+.missile-left .missile-svg {
+  transform: scaleX(-1);
+}
+
+.missile-left::after {
+  right: -64px;
+  transform: translateY(-50%);
+}
+
+.missile-right::after {
+  left: -64px;
+  transform: translateY(-50%);
+}
+
+.missile.patriot {
+  width: min(26vw, 280px);
+  height: 82px;
+}
+
+.missile.tomahawk {
+  width: min(31vw, 340px);
+  height: 98px;
 }
 
 .missile-left.missile-rear {
   z-index: 1;
-  transform: translate(-42%, -42%) rotate(-52deg) scaleX(-1) scale(0.24);
+  transform: translate(-38%, -56%) rotate(-56deg) scale(0.22);
 }
 
 .missile-left.missile-front {
   z-index: 3;
-  transform: translate(-48%, -16%) rotate(-24deg) scaleX(-1) scale(0.28);
+  transform: translate(-44%, -18%) rotate(-24deg) scale(0.24);
 }
 
 .missile-right.missile-rear {
   z-index: 1;
-  transform: translate(-58%, -42%) rotate(52deg) scale(0.24);
+  transform: translate(-62%, -56%) rotate(56deg) scale(0.22);
 }
 
 .missile-right.missile-front {
   z-index: 3;
-  transform: translate(-52%, -16%) rotate(24deg) scale(0.28);
+  transform: translate(-56%, -18%) rotate(24deg) scale(0.24);
 }
 
 .tank {
   left: 50%;
-  bottom: 8%;
-  width: min(30vw, 250px);
-  height: 132px;
-  background:
-    linear-gradient(180deg, #3d4a59, #1c232d) 22% 47% / 56% 23% no-repeat,
-    linear-gradient(180deg, #3d4a59, #1c232d) 46% 28% / 26% 18% no-repeat,
-    radial-gradient(circle at 22% 84%, #0d1219 0 13px, transparent 14px),
-    radial-gradient(circle at 40% 84%, #0d1219 0 13px, transparent 14px),
-    radial-gradient(circle at 58% 84%, #0d1219 0 13px, transparent 14px),
-    radial-gradient(circle at 76% 84%, #0d1219 0 13px, transparent 14px);
+  bottom: 7%;
+  width: min(28vw, 280px);
+  height: min(16vw, 160px);
   filter: drop-shadow(0 18px 24px rgba(0, 0, 0, 0.34));
 }
 
-.tank::before {
-  content: "";
-  position: absolute;
-  right: 4%;
-  top: 34%;
-  width: 38%;
-  height: 8%;
-  border-radius: 999px;
-  background: linear-gradient(180deg, var(--metal-top), var(--metal-low));
-  border: 3px solid #09101a;
-}
-
-.tank::after {
-  content: "";
-  position: absolute;
-  left: 10%;
-  bottom: 17%;
-  width: 78%;
-  height: 18%;
-  border-radius: 999px;
-  border: 8px solid #0d1219;
+.tank-left .tank-svg {
+  transform: scaleX(-1);
 }
 
 .tank-left {
   z-index: 2;
-  transform: translate(-56%, 0) perspective(1100px) rotateY(78deg) scaleX(-1) scale(0.34);
+  transform: translate(-54%, 0) perspective(1200px) rotateY(82deg) scale(0.24);
 }
 
 .tank-right {
   z-index: 2;
-  transform: translate(-44%, 0) perspective(1100px) rotateY(-78deg) scale(0.34);
+  transform: translate(-46%, 0) perspective(1200px) rotateY(-82deg) scale(0.24);
 }
 
 .hint {
@@ -701,7 +692,7 @@ body {
   font-size: clamp(1.4rem, 3vw, 2rem);
   letter-spacing: 0.2em;
   text-transform: uppercase;
-  color: rgba(255, 246, 230, 0.86);
+  color: rgba(255, 246, 230, 0.88);
   text-align: center;
   transition: opacity 220ms ease, transform 220ms ease;
 }
@@ -727,10 +718,6 @@ body {
     transform 320ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-.app.armed .flag {
-  opacity: 1;
-}
-
 .app.armed .button-glow {
   transform: scale(1.26);
   opacity: 1;
@@ -753,52 +740,80 @@ body {
   opacity: 1;
 }
 
+.app.armed .fan::before,
+.app.armed .fan::after,
+.app.armed .missile::after {
+  opacity: 1;
+}
+
 .app.armed .fan-left.fan-rear {
-  transform: translate(-84%, -96%) perspective(1400px) rotateY(75deg) rotateZ(-40deg) scale(0.82);
+  transform: translate(-80%, -102%) perspective(1400px) rotateY(76deg) rotateZ(-44deg) scale(0.92);
 }
 
 .app.armed .fan-left.fan-mid {
-  transform: translate(-102%, -62%) perspective(1400px) rotateY(68deg) rotateZ(-18deg) scale(1.02);
+  transform: translate(-102%, -62%) perspective(1400px) rotateY(68deg) rotateZ(-21deg) scale(1.1);
 }
 
 .app.armed .fan-left.fan-front {
-  transform: translate(-118%, -26%) perspective(1400px) rotateY(60deg) rotateZ(-2deg) scale(1.18);
+  transform: translate(-122%, -18%) perspective(1400px) rotateY(58deg) rotateZ(-2deg) scale(1.28);
 }
 
 .app.armed .fan-right.fan-rear {
-  transform: translate(18%, -96%) perspective(1400px) rotateY(-75deg) rotateZ(40deg) scale(0.82);
+  transform: translate(18%, -102%) perspective(1400px) rotateY(-76deg) rotateZ(44deg) scale(0.92);
 }
 
 .app.armed .fan-right.fan-mid {
-  transform: translate(30%, -62%) perspective(1400px) rotateY(-68deg) rotateZ(18deg) scale(1.02);
+  transform: translate(32%, -62%) perspective(1400px) rotateY(-68deg) rotateZ(21deg) scale(1.1);
 }
 
 .app.armed .fan-right.fan-front {
-  transform: translate(40%, -26%) perspective(1400px) rotateY(-60deg) rotateZ(2deg) scale(1.18);
+  transform: translate(42%, -18%) perspective(1400px) rotateY(-58deg) rotateZ(2deg) scale(1.28);
 }
 
 .app.armed .missile-left.missile-rear {
-  transform: translate(-128%, -112%) rotate(-58deg) scaleX(-1) scale(0.82);
+  transform: translate(-132%, -122%) rotate(-60deg) scale(0.82);
 }
 
 .app.armed .missile-left.missile-front {
-  transform: translate(-164%, -30%) rotate(-24deg) scaleX(-1) scale(1.02);
+  transform: translate(-174%, -34%) rotate(-24deg) scale(1.04);
 }
 
 .app.armed .missile-right.missile-rear {
-  transform: translate(28%, -112%) rotate(58deg) scale(0.82);
+  transform: translate(30%, -122%) rotate(60deg) scale(0.82);
 }
 
 .app.armed .missile-right.missile-front {
-  transform: translate(60%, -30%) rotate(24deg) scale(1.02);
+  transform: translate(64%, -34%) rotate(24deg) scale(1.04);
 }
 
 .app.armed .tank-left {
-  transform: translate(-136%, 0) perspective(1100px) rotateY(60deg) scaleX(-1) scale(0.96);
+  transform: translate(-138%, 0) perspective(1200px) rotateY(62deg) scale(0.98);
 }
 
 .app.armed .tank-right {
-  transform: translate(36%, 0) perspective(1100px) rotateY(-60deg) scale(0.96);
+  transform: translate(38%, 0) perspective(1200px) rotateY(-62deg) scale(0.98);
+}
+
+.app.armed .fan-left::before,
+.app.armed .fan-left::after {
+  animation: auto-fire-left 90ms steps(2, end) infinite alternate;
+}
+
+.app.armed .fan-right::before,
+.app.armed .fan-right::after {
+  animation: auto-fire-right 90ms steps(2, end) infinite alternate;
+}
+
+.app.armed .fan-left .weapon-svg {
+  animation: weapon-rattle-left 70ms steps(2, end) infinite alternate;
+}
+
+.app.armed .fan-right .weapon-svg {
+  animation: weapon-rattle-right 70ms steps(2, end) infinite alternate;
+}
+
+.app.armed .missile::after {
+  animation: rocket-burn 180ms ease-in-out infinite alternate;
 }
 
 .app.armed .burst-a {
@@ -820,14 +835,14 @@ body {
 @keyframes flag-swell {
   0%,
   100% {
-    transform: scale(1.08) translateX(-1%);
+    transform: scale(1.09) translateX(-1%);
   }
   50% {
-    transform: scale(1.12) translateX(1%);
+    transform: scale(1.13) translateX(1%);
   }
 }
 
-@keyframes flag-wave {
+@keyframes flag-wave-a {
   0% {
     transform: translateX(-4%) scaleX(1.04);
   }
@@ -839,7 +854,7 @@ body {
   }
 }
 
-@keyframes flag-light {
+@keyframes flag-wave-b {
   0%,
   100% {
     transform: translateX(-2%);
@@ -847,7 +862,66 @@ body {
   }
   50% {
     transform: translateX(2%);
-    opacity: 0.68;
+    opacity: 0.7;
+  }
+}
+
+@keyframes flag-glow {
+  0%,
+  100% {
+    transform: translateX(-1%);
+    opacity: 0.5;
+  }
+  50% {
+    transform: translateX(1%);
+    opacity: 0.66;
+  }
+}
+
+@keyframes auto-fire-left {
+  0% {
+    opacity: 0.18;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes auto-fire-right {
+  0% {
+    opacity: 0.18;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes weapon-rattle-left {
+  0% {
+    transform: scaleX(-1) translateX(0);
+  }
+  100% {
+    transform: scaleX(-1) translateX(3px) translateY(-1px);
+  }
+}
+
+@keyframes weapon-rattle-right {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(3px) translateY(-1px);
+  }
+}
+
+@keyframes rocket-burn {
+  0% {
+    opacity: 0.34;
+    width: 70px;
+  }
+  100% {
+    opacity: 0.95;
+    width: 110px;
   }
 }
 
@@ -869,79 +943,78 @@ body {
   }
 }
 
-@media (max-width: 720px) {
-  .scene {
-    padding: 1.1rem;
-  }
-
+@media (max-width: 900px) {
   .hand-stage {
-    width: min(86vw, 360px);
-    height: min(108vw, 450px);
+    width: min(72vw, 360px);
+    height: min(96vw, 450px);
   }
 
   .fan {
-    width: min(76vw, 320px);
-    height: 62px;
-    top: 46%;
+    width: min(72vw, 380px);
+    height: 92px;
   }
 
   .app.armed .fan-left.fan-rear {
-    transform: translate(-88%, -92%) perspective(1100px) rotateY(72deg) rotateZ(-36deg) scale(0.7);
+    transform: translate(-72%, -98%) perspective(1100px) rotateY(74deg) rotateZ(-40deg) scale(0.76);
   }
 
   .app.armed .fan-left.fan-mid {
-    transform: translate(-100%, -60%) perspective(1100px) rotateY(66deg) rotateZ(-17deg) scale(0.88);
+    transform: translate(-90%, -62%) perspective(1100px) rotateY(66deg) rotateZ(-20deg) scale(0.9);
   }
 
   .app.armed .fan-left.fan-front {
-    transform: translate(-110%, -26%) perspective(1100px) rotateY(58deg) rotateZ(-2deg) scale(0.98);
+    transform: translate(-106%, -18%) perspective(1100px) rotateY(56deg) rotateZ(-2deg) scale(1.02);
   }
 
   .app.armed .fan-right.fan-rear {
-    transform: translate(10%, -92%) perspective(1100px) rotateY(-72deg) rotateZ(36deg) scale(0.7);
+    transform: translate(10%, -98%) perspective(1100px) rotateY(-74deg) rotateZ(40deg) scale(0.76);
   }
 
   .app.armed .fan-right.fan-mid {
-    transform: translate(22%, -60%) perspective(1100px) rotateY(-66deg) rotateZ(17deg) scale(0.88);
+    transform: translate(22%, -62%) perspective(1100px) rotateY(-66deg) rotateZ(20deg) scale(0.9);
   }
 
   .app.armed .fan-right.fan-front {
-    transform: translate(32%, -26%) perspective(1100px) rotateY(-58deg) rotateZ(2deg) scale(0.98);
+    transform: translate(32%, -18%) perspective(1100px) rotateY(-56deg) rotateZ(2deg) scale(1.02);
   }
 
-  .missile {
-    width: 112px;
-    height: 24px;
+  .missile.patriot {
+    width: 180px;
+    height: 54px;
+  }
+
+  .missile.tomahawk {
+    width: 224px;
+    height: 64px;
   }
 
   .app.armed .missile-left.missile-rear {
-    transform: translate(-114%, -102%) rotate(-58deg) scaleX(-1) scale(0.72);
+    transform: translate(-118%, -112%) rotate(-60deg) scale(0.62);
   }
 
   .app.armed .missile-left.missile-front {
-    transform: translate(-146%, -28%) rotate(-24deg) scaleX(-1) scale(0.88);
+    transform: translate(-154%, -30%) rotate(-24deg) scale(0.8);
   }
 
   .app.armed .missile-right.missile-rear {
-    transform: translate(16%, -102%) rotate(58deg) scale(0.72);
+    transform: translate(18%, -112%) rotate(60deg) scale(0.62);
   }
 
   .app.armed .missile-right.missile-front {
-    transform: translate(46%, -28%) rotate(24deg) scale(0.88);
+    transform: translate(50%, -30%) rotate(24deg) scale(0.8);
   }
 
   .tank {
-    width: 170px;
-    height: 98px;
-    bottom: 11%;
+    width: 180px;
+    height: 102px;
   }
 
   .app.armed .tank-left {
-    transform: translate(-116%, 0) perspective(900px) rotateY(58deg) scaleX(-1) scale(0.8);
+    transform: translate(-118%, 0) perspective(1000px) rotateY(60deg) scale(0.78);
   }
 
   .app.armed .tank-right {
-    transform: translate(16%, 0) perspective(900px) rotateY(-58deg) scale(0.8);
+    transform: translate(18%, 0) perspective(1000px) rotateY(-60deg) scale(0.78);
   }
 }
 

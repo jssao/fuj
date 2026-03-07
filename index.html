@@ -13,10 +13,188 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
+    <svg class="asset-defs" aria-hidden="true" focusable="false">
+      <defs>
+        <polygon
+          id="flag-star"
+          points="0,-50 14,-16 47,-15 22,8 31,40 0,22 -31,40 -22,8 -47,-15 -14,-16"
+        />
+
+        <symbol id="mk18-rifle" viewBox="0 0 940 220">
+          <g class="body">
+            <rect x="46" y="94" width="138" height="14" rx="6" />
+            <path
+              d="M28 74h62l16 14h54v24H92l-18 18H36l-8-8V74Z"
+            />
+            <rect x="176" y="82" width="18" height="40" rx="4" />
+            <rect x="194" y="72" width="92" height="18" rx="4" />
+            <path
+              d="M274 66h182v16h70v52h-66l-16 20h-34l-4-16h-18l-10 52h-56l14-60-40-18h-20V66Z"
+            />
+            <rect x="286" y="56" width="254" height="12" rx="4" />
+            <rect x="534" y="62" width="22" height="76" rx="4" />
+            <path d="M554 72h170v16H554z" />
+            <rect x="724" y="78" width="112" height="12" rx="3" />
+            <rect x="836" y="76" width="44" height="16" rx="3" />
+            <rect x="880" y="74" width="18" height="20" rx="2" />
+            <path d="M378 138h60l34 58h-54l-44-46z" />
+            <path d="M444 134h64v22h-24v38h-34l-18-42z" />
+            <path d="M596 52h10v38h-10z" />
+            <path d="M638 54h16v28h-16z" />
+          </g>
+          <g class="detail">
+            <rect x="314" y="78" width="126" height="8" rx="3" />
+            <rect x="566" y="78" width="126" height="8" rx="3" />
+            <circle cx="368" cy="107" r="7" />
+            <circle cx="638" cy="84" r="4" />
+          </g>
+        </symbol>
+
+        <symbol id="tomahawk-missile" viewBox="0 0 760 220">
+          <g class="body">
+            <path
+              d="M38 110 134 68h384l168 42-168 42H134L38 110Z"
+            />
+            <path d="M154 88h94l92-36 24 6-84 30 84 30-24 6-92-36h-94Z" />
+            <path d="M112 84 148 56h24v44h-28l-32 18-24-8Z" />
+            <path d="M112 136 148 164h24v-44h-28l-32-18-24 8Z" />
+            <path d="M38 110h42l-18-34H48L6 110l42 34h14l18-34H38Z" />
+          </g>
+          <g class="detail">
+            <rect x="198" y="92" width="234" height="12" rx="4" />
+            <rect x="538" y="102" width="90" height="8" rx="4" />
+            <circle cx="650" cy="110" r="9" />
+          </g>
+        </symbol>
+
+        <symbol id="patriot-missile" viewBox="0 0 760 220">
+          <g class="body">
+            <path
+              d="M52 110 116 78h454l138 32-138 32H116L52 110Z"
+            />
+            <path d="M76 110h42l-18-58H78l-64 58 64 58h22l18-58H76Z" />
+            <path d="M186 90 224 54h18v40h-20l-34 18-18-8Z" />
+            <path d="M186 130 224 166h18v-40h-20l-34-18-18 8Z" />
+            <path d="M490 94 530 78h20v20h-18l-30 14-16-6Z" />
+            <path d="M490 126 530 142h20v-20h-18l-30-14-16 6Z" />
+          </g>
+          <g class="detail">
+            <rect x="220" y="102" width="264" height="8" rx="4" />
+            <rect x="566" y="104" width="72" height="6" rx="3" />
+          </g>
+        </symbol>
+
+        <symbol id="bradley-ifv" viewBox="0 0 760 360">
+          <g class="body">
+            <path
+              d="M58 246h60l54-104h214l68 34h76l42 20h56l18 22v28H58z"
+            />
+            <path d="M266 132h96l34 18h-130z" />
+            <path d="M334 100h82l28 16v54h-132v-40l22-30z" />
+            <path d="M442 118h96l12 14v26H434v-22z" />
+            <path d="M546 130h134v18H546z" />
+            <path d="M680 132h54v14h-54z" />
+            <path d="M392 144h42v70h-42z" />
+            <rect x="84" y="236" width="566" height="74" rx="36" />
+          </g>
+          <g class="detail">
+            <circle cx="160" cy="274" r="24" />
+            <circle cx="246" cy="274" r="24" />
+            <circle cx="332" cy="274" r="24" />
+            <circle cx="418" cy="274" r="24" />
+            <circle cx="504" cy="274" r="24" />
+            <circle cx="590" cy="274" r="24" />
+            <rect x="110" y="222" width="142" height="12" rx="4" />
+            <rect x="292" y="164" width="82" height="10" rx="4" />
+            <rect x="474" y="192" width="76" height="10" rx="4" />
+            <rect x="328" y="114" width="30" height="8" rx="4" />
+          </g>
+        </symbol>
+      </defs>
+    </svg>
+
     <main class="app" id="app">
       <section class="scene" aria-live="polite">
         <div class="flag" aria-hidden="true">
-          <span class="star-field"></span>
+          <svg
+            class="flag-svg"
+            viewBox="0 0 1900 1000"
+            preserveAspectRatio="xMidYMid slice"
+          >
+            <rect width="1900" height="1000" fill="#ffffff" />
+            <rect width="1900" height="76.923" y="0" fill="#b22234" />
+            <rect width="1900" height="76.923" y="153.846" fill="#b22234" />
+            <rect width="1900" height="76.923" y="307.692" fill="#b22234" />
+            <rect width="1900" height="76.923" y="461.538" fill="#b22234" />
+            <rect width="1900" height="76.923" y="615.384" fill="#b22234" />
+            <rect width="1900" height="76.923" y="769.23" fill="#b22234" />
+            <rect width="1900" height="76.923" y="923.076" fill="#b22234" />
+            <rect width="760" height="538.462" fill="#3c3b6e" />
+
+            <g fill="#ffffff">
+              <use href="#flag-star" transform="translate(63 58) scale(0.58)" />
+              <use href="#flag-star" transform="translate(189 58) scale(0.58)" />
+              <use href="#flag-star" transform="translate(315 58) scale(0.58)" />
+              <use href="#flag-star" transform="translate(441 58) scale(0.58)" />
+              <use href="#flag-star" transform="translate(567 58) scale(0.58)" />
+              <use href="#flag-star" transform="translate(693 58) scale(0.58)" />
+
+              <use href="#flag-star" transform="translate(126 112) scale(0.58)" />
+              <use href="#flag-star" transform="translate(252 112) scale(0.58)" />
+              <use href="#flag-star" transform="translate(378 112) scale(0.58)" />
+              <use href="#flag-star" transform="translate(504 112) scale(0.58)" />
+              <use href="#flag-star" transform="translate(630 112) scale(0.58)" />
+
+              <use href="#flag-star" transform="translate(63 166) scale(0.58)" />
+              <use href="#flag-star" transform="translate(189 166) scale(0.58)" />
+              <use href="#flag-star" transform="translate(315 166) scale(0.58)" />
+              <use href="#flag-star" transform="translate(441 166) scale(0.58)" />
+              <use href="#flag-star" transform="translate(567 166) scale(0.58)" />
+              <use href="#flag-star" transform="translate(693 166) scale(0.58)" />
+
+              <use href="#flag-star" transform="translate(126 220) scale(0.58)" />
+              <use href="#flag-star" transform="translate(252 220) scale(0.58)" />
+              <use href="#flag-star" transform="translate(378 220) scale(0.58)" />
+              <use href="#flag-star" transform="translate(504 220) scale(0.58)" />
+              <use href="#flag-star" transform="translate(630 220) scale(0.58)" />
+
+              <use href="#flag-star" transform="translate(63 274) scale(0.58)" />
+              <use href="#flag-star" transform="translate(189 274) scale(0.58)" />
+              <use href="#flag-star" transform="translate(315 274) scale(0.58)" />
+              <use href="#flag-star" transform="translate(441 274) scale(0.58)" />
+              <use href="#flag-star" transform="translate(567 274) scale(0.58)" />
+              <use href="#flag-star" transform="translate(693 274) scale(0.58)" />
+
+              <use href="#flag-star" transform="translate(126 328) scale(0.58)" />
+              <use href="#flag-star" transform="translate(252 328) scale(0.58)" />
+              <use href="#flag-star" transform="translate(378 328) scale(0.58)" />
+              <use href="#flag-star" transform="translate(504 328) scale(0.58)" />
+              <use href="#flag-star" transform="translate(630 328) scale(0.58)" />
+
+              <use href="#flag-star" transform="translate(63 382) scale(0.58)" />
+              <use href="#flag-star" transform="translate(189 382) scale(0.58)" />
+              <use href="#flag-star" transform="translate(315 382) scale(0.58)" />
+              <use href="#flag-star" transform="translate(441 382) scale(0.58)" />
+              <use href="#flag-star" transform="translate(567 382) scale(0.58)" />
+              <use href="#flag-star" transform="translate(693 382) scale(0.58)" />
+
+              <use href="#flag-star" transform="translate(126 436) scale(0.58)" />
+              <use href="#flag-star" transform="translate(252 436) scale(0.58)" />
+              <use href="#flag-star" transform="translate(378 436) scale(0.58)" />
+              <use href="#flag-star" transform="translate(504 436) scale(0.58)" />
+              <use href="#flag-star" transform="translate(630 436) scale(0.58)" />
+
+              <use href="#flag-star" transform="translate(63 490) scale(0.58)" />
+              <use href="#flag-star" transform="translate(189 490) scale(0.58)" />
+              <use href="#flag-star" transform="translate(315 490) scale(0.58)" />
+              <use href="#flag-star" transform="translate(441 490) scale(0.58)" />
+              <use href="#flag-star" transform="translate(567 490) scale(0.58)" />
+              <use href="#flag-star" transform="translate(693 490) scale(0.58)" />
+            </g>
+          </svg>
+          <span class="flag-wave flag-wave-a"></span>
+          <span class="flag-wave flag-wave-b"></span>
+          <span class="flag-shadow"></span>
         </div>
 
         <div class="fireworks" aria-hidden="true">
@@ -28,29 +206,67 @@
 
         <div class="arsenal" aria-hidden="true">
           <div class="fan fan-left fan-rear">
-            <div class="weapon rifle compact"></div>
+            <svg class="weapon-svg" viewBox="0 0 940 220">
+              <use href="#mk18-rifle"></use>
+            </svg>
           </div>
           <div class="fan fan-left fan-mid">
-            <div class="weapon gatling"></div>
+            <svg class="weapon-svg" viewBox="0 0 940 220">
+              <use href="#mk18-rifle"></use>
+            </svg>
           </div>
           <div class="fan fan-left fan-front">
-            <div class="weapon rifle"></div>
+            <svg class="weapon-svg" viewBox="0 0 940 220">
+              <use href="#mk18-rifle"></use>
+            </svg>
           </div>
           <div class="fan fan-right fan-rear">
-            <div class="weapon rifle compact"></div>
+            <svg class="weapon-svg" viewBox="0 0 940 220">
+              <use href="#mk18-rifle"></use>
+            </svg>
           </div>
           <div class="fan fan-right fan-mid">
-            <div class="weapon gatling"></div>
+            <svg class="weapon-svg" viewBox="0 0 940 220">
+              <use href="#mk18-rifle"></use>
+            </svg>
           </div>
           <div class="fan fan-right fan-front">
-            <div class="weapon rifle"></div>
+            <svg class="weapon-svg" viewBox="0 0 940 220">
+              <use href="#mk18-rifle"></use>
+            </svg>
           </div>
-          <div class="missile missile-left missile-rear"></div>
-          <div class="missile missile-left missile-front"></div>
-          <div class="missile missile-right missile-rear"></div>
-          <div class="missile missile-right missile-front"></div>
-          <div class="tank tank-left"></div>
-          <div class="tank tank-right"></div>
+
+          <div class="missile patriot missile-left missile-rear">
+            <svg class="missile-svg" viewBox="0 0 760 220">
+              <use href="#patriot-missile"></use>
+            </svg>
+          </div>
+          <div class="missile tomahawk missile-left missile-front">
+            <svg class="missile-svg" viewBox="0 0 760 220">
+              <use href="#tomahawk-missile"></use>
+            </svg>
+          </div>
+          <div class="missile patriot missile-right missile-rear">
+            <svg class="missile-svg" viewBox="0 0 760 220">
+              <use href="#patriot-missile"></use>
+            </svg>
+          </div>
+          <div class="missile tomahawk missile-right missile-front">
+            <svg class="missile-svg" viewBox="0 0 760 220">
+              <use href="#tomahawk-missile"></use>
+            </svg>
+          </div>
+
+          <div class="tank tank-left">
+            <svg class="tank-svg" viewBox="0 0 760 360">
+              <use href="#bradley-ifv"></use>
+            </svg>
+          </div>
+          <div class="tank tank-right">
+            <svg class="tank-svg" viewBox="0 0 760 360">
+              <use href="#bradley-ifv"></use>
+            </svg>
+          </div>
         </div>
 
         <div class="content">
