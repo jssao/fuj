@@ -1,0 +1,196 @@
+:root {
+  --bg-top: #f7d9c4;
+  --bg-bottom: #dff2ff;
+  --skin: #e0a67d;
+  --skin-dark: #a56a42;
+  --outline: #2a160d;
+  --text: #7a0000;
+  --shadow: rgba(42, 22, 13, 0.18);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle at top, rgba(255, 255, 255, 0.65), transparent 35%),
+    linear-gradient(180deg, var(--bg-top), var(--bg-bottom));
+  font-family: "Arial Black", Arial, sans-serif;
+}
+
+.app {
+  display: grid;
+  justify-items: center;
+  gap: 1.5rem;
+  padding: 2rem;
+}
+
+.hand-button {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+
+.hand-button:focus-visible {
+  outline: 4px solid #ffffff;
+  outline-offset: 12px;
+  border-radius: 32px;
+}
+
+.hand {
+  position: relative;
+  display: block;
+  width: min(52vw, 250px);
+  height: min(68vw, 330px);
+  filter: drop-shadow(0 18px 24px var(--shadow));
+}
+
+.finger,
+.thumb,
+.palm {
+  position: absolute;
+  display: block;
+  background: var(--skin);
+  border: 4px solid var(--outline);
+}
+
+.finger {
+  width: 22%;
+  height: 34%;
+  top: 12%;
+  border-radius: 32px;
+  transition:
+    transform 280ms ease,
+    height 280ms ease,
+    top 280ms ease,
+    left 280ms ease,
+    border-radius 280ms ease;
+}
+
+.finger::after {
+  content: "";
+  position: absolute;
+  inset: 12% 14% auto;
+  height: 12%;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.24);
+}
+
+.finger-index {
+  left: 10%;
+}
+
+.finger-middle {
+  left: 31%;
+}
+
+.finger-ring {
+  left: 52%;
+}
+
+.finger-pinky {
+  left: 73%;
+}
+
+.thumb {
+  width: 28%;
+  height: 20%;
+  left: -1%;
+  top: 39%;
+  border-radius: 28px;
+  transform: rotate(-28deg);
+  z-index: 3;
+  transition: transform 280ms ease, top 280ms ease, left 280ms ease;
+}
+
+.palm {
+  width: 82%;
+  height: 43%;
+  left: 9%;
+  bottom: 7%;
+  border-radius: 34px 34px 42px 42px;
+}
+
+.fist .finger {
+  height: 22%;
+  top: 30%;
+  border-radius: 20px;
+}
+
+.fist .finger-index {
+  transform: rotate(-5deg);
+}
+
+.fist .finger-middle {
+  transform: rotate(1deg);
+}
+
+.fist .finger-ring {
+  transform: rotate(4deg);
+}
+
+.fist .finger-pinky {
+  transform: rotate(8deg);
+}
+
+.fist .thumb {
+  top: 41%;
+  left: 4%;
+}
+
+.flipped .finger-index,
+.flipped .finger-ring,
+.flipped .finger-pinky {
+  height: 19%;
+  top: 33%;
+}
+
+.flipped .finger-index {
+  transform: rotate(-6deg);
+}
+
+.flipped .finger-ring {
+  transform: rotate(5deg);
+}
+
+.flipped .finger-pinky {
+  transform: rotate(10deg);
+}
+
+.flipped .finger-middle {
+  height: 53%;
+  top: 1%;
+  transform: translateY(-3%);
+  border-radius: 32px;
+}
+
+.flipped .thumb {
+  top: 44%;
+  left: 5%;
+  transform: rotate(-38deg);
+}
+
+.message {
+  margin: 0;
+  font-size: clamp(2rem, 8vw, 4.8rem);
+  line-height: 0.95;
+  text-transform: uppercase;
+  text-align: center;
+  color: var(--text);
+  letter-spacing: 0.08em;
+  opacity: 0;
+  transform: scale(0.85);
+  transition: opacity 220ms ease, transform 220ms ease;
+  text-shadow: 0 4px 0 rgba(255, 255, 255, 0.55);
+}
+
+.message.visible {
+  opacity: 1;
+  transform: scale(1);
+}
