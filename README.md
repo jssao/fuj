@@ -1,16 +1,15 @@
-# Static Hand Gesture Site
+# Static GitHub Pages Site
 
-This is a plain HTML/CSS/JS site that can be hosted for free on GitHub Pages.
+This project is a plain HTML/CSS/JS site with no build step, so it can be hosted directly from the repository root on GitHub Pages.
 
 ## Local use
 
-Open `index.html` directly in a browser, or serve the folder with a static server.
+Open `index.html` in a browser or serve the folder with any static file server.
 
 ## GitHub Pages
 
-1. Create a new GitHub repository.
-2. Upload these files to the repository root.
-3. In GitHub, open `Settings` -> `Pages`.
-4. Under `Build and deployment`, choose `Deploy from a branch`.
-5. Select the `main` branch and `/ (root)`.
-6. Save, then wait for GitHub to publish the site URL.
+1. Push these files to the repository root on the `main` branch.
+2. In GitHub, open `Settings` -> `Pages`.
+3. Under `Build and deployment`, choose `Deploy from a branch`.
+4. Select the `main` branch and `/ (root)`.
+5. Save and wait for the public site URL to appear.
