@@ -34,8 +34,8 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.1;
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color("#0a1422");
-scene.fog = new THREE.Fog("#0a1422", 95, 270);
+scene.background = new THREE.Color("#a9d7f4");
+scene.fog = new THREE.Fog("#d7efff", 110, 300);
 
 const camera = new THREE.PerspectiveCamera(
   52,
@@ -91,28 +91,28 @@ window.addEventListener("resize", onResize);
 requestAnimationFrame(animate);
 
 function buildScene() {
-  const hemisphere = new THREE.HemisphereLight(0xfff5c9, 0x7b4d2a, 1.6);
+  const hemisphere = new THREE.HemisphereLight(0xeef9ff, 0xa86d33, 1.95);
   scene.add(hemisphere);
 
-  const sunLight = new THREE.DirectionalLight(0xffedb2, 1.65);
-  sunLight.position.set(80, 90, 30);
+  const sunLight = new THREE.DirectionalLight(0xfff4c7, 1.95);
+  sunLight.position.set(70, 110, 24);
   scene.add(sunLight);
 
-  const fillLight = new THREE.DirectionalLight(0x81b4ff, 0.55);
-  fillLight.position.set(-70, 26, -60);
+  const fillLight = new THREE.DirectionalLight(0x8bd0ff, 0.8);
+  fillLight.position.set(-80, 42, -54);
   scene.add(fillLight);
 
   const sun = new THREE.Mesh(
     new THREE.SphereGeometry(13, 24, 24),
-    new THREE.MeshBasicMaterial({ color: 0xffdb78 })
+    new THREE.MeshBasicMaterial({ color: 0xffe08c })
   );
-  sun.position.set(-86, 86, -180);
+  sun.position.set(-108, 118, -180);
   scene.add(sun);
 
   const ground = new THREE.Mesh(
     new THREE.CircleGeometry(320, 64),
     new THREE.MeshStandardMaterial({
-      color: 0x8a6339,
+      color: 0xc08a4f,
       roughness: 1,
       metalness: 0.02,
     })
@@ -124,7 +124,7 @@ function buildScene() {
   const innerGround = new THREE.Mesh(
     new THREE.CircleGeometry(180, 48),
     new THREE.MeshStandardMaterial({
-      color: 0x6f4c2a,
+      color: 0xa87442,
       roughness: 1,
       metalness: 0.02,
     })
@@ -266,17 +266,17 @@ function createRibbonGeometry(curve, segments, halfWidth, yOffset) {
 
 function createLaneMarks() {
   const group = new THREE.Group();
-  const dashGeometry = new THREE.BoxGeometry(2.9, 0.08, 0.34);
+  const dashGeometry = new THREE.BoxGeometry(2.2, 0.08, 0.34);
   const dashMaterial = new THREE.MeshStandardMaterial({
     color: 0xf4efe2,
     roughness: 0.5,
     metalness: 0.05,
     emissive: 0xe8ddbb,
-    emissiveIntensity: 0.08,
+    emissiveIntensity: 0.14,
   });
 
-  for (let index = 0; index < TRACK_SEGMENTS; index += 6) {
-    if ((index / 6) % 2 === 0) {
+  for (let index = 0; index < TRACK_SEGMENTS; index += 3) {
+    if ((index / 3) % 2 === 0) {
       continue;
     }
 
@@ -630,7 +630,7 @@ function createCar() {
   });
 
   const shadow = new THREE.Mesh(
-    new THREE.CircleGeometry(3, 28),
+    new THREE.CircleGeometry(3.3, 28),
     new THREE.MeshBasicMaterial({
       color: 0x000000,
       transparent: true,
@@ -639,54 +639,89 @@ function createCar() {
   );
   shadow.rotation.x = -Math.PI / 2;
   shadow.position.y = 0.04;
-  shadow.scale.set(1.3, 0.82, 1);
+  shadow.scale.set(1.4, 0.86, 1);
   car.add(shadow);
 
   const shellShape = new THREE.Shape();
-  shellShape.moveTo(-1.75, 0);
-  shellShape.quadraticCurveTo(-0.4, 2.2, 0, 2.34);
-  shellShape.quadraticCurveTo(0.4, 2.2, 1.75, 0);
-  shellShape.lineTo(1.06, 0.18);
-  shellShape.quadraticCurveTo(0.24, 1.24, 0, 1.42);
-  shellShape.quadraticCurveTo(-0.24, 1.24, -1.06, 0.18);
+  shellShape.moveTo(-1.96, 0.08);
+  shellShape.quadraticCurveTo(-0.98, 2.08, -0.22, 2.54);
+  shellShape.quadraticCurveTo(0.16, 2.78, 0.48, 2.48);
+  shellShape.quadraticCurveTo(1.04, 2.02, 1.96, 0.08);
+  shellShape.lineTo(1.26, 0.34);
+  shellShape.quadraticCurveTo(0.54, 1.62, 0.16, 1.88);
+  shellShape.quadraticCurveTo(-0.18, 2.08, -0.58, 1.82);
+  shellShape.quadraticCurveTo(-1.08, 1.48, -1.26, 0.36);
   shellShape.closePath();
 
   const shellGeometry = new THREE.ExtrudeGeometry(shellShape, {
-    depth: 5.6,
+    depth: 5.9,
     bevelEnabled: false,
-    curveSegments: 24,
+    curveSegments: 28,
   });
   shellGeometry.center();
 
   const shell = new THREE.Mesh(shellGeometry, shellMaterial);
-  shell.position.y = 0.76;
+  shell.position.y = 0.82;
   car.add(shell);
 
+  const innerShellGeometry = new THREE.ExtrudeGeometry(
+    new THREE.Shape([
+      new THREE.Vector2(-1.5, 0.24),
+      new THREE.Vector2(-0.6, 1.5),
+      new THREE.Vector2(-0.08, 1.82),
+      new THREE.Vector2(0.34, 1.7),
+      new THREE.Vector2(0.92, 1.26),
+      new THREE.Vector2(1.46, 0.24),
+      new THREE.Vector2(0.94, 0.38),
+      new THREE.Vector2(0.22, 1.18),
+      new THREE.Vector2(-0.16, 1.3),
+      new THREE.Vector2(-0.72, 0.92),
+      new THREE.Vector2(-0.98, 0.4),
+    ]),
+    {
+      depth: 5.4,
+      bevelEnabled: false,
+      curveSegments: 18,
+    }
+  );
+  innerShellGeometry.center();
+
+  const innerShell = new THREE.Mesh(
+    innerShellGeometry,
+    new THREE.MeshStandardMaterial({
+      color: 0xf3d39a,
+      roughness: 0.7,
+      metalness: 0.04,
+    })
+  );
+  innerShell.position.y = 0.94;
+  car.add(innerShell);
+
   const toastStripe = new THREE.Mesh(
-    new THREE.BoxGeometry(0.2, 0.3, 5.3),
+    new THREE.BoxGeometry(0.24, 0.34, 5.5),
     shellToastMaterial
   );
-  toastStripe.position.set(1.52, 0.88, 0);
+  toastStripe.position.set(1.68, 0.96, 0);
   car.add(toastStripe);
 
   const toastStripeOpposite = toastStripe.clone();
-  toastStripeOpposite.position.x = -1.52;
+  toastStripeOpposite.position.x = -1.68;
   car.add(toastStripeOpposite);
 
-  const basePlate = new THREE.Mesh(new THREE.BoxGeometry(2.34, 0.22, 5.35), darkMaterial);
-  basePlate.position.y = 0.5;
+  const basePlate = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.24, 5.7), darkMaterial);
+  basePlate.position.y = 0.56;
   car.add(basePlate);
 
   const meatCluster = new THREE.Group();
   const meatGeometry = new THREE.SphereGeometry(0.34, 12, 12);
 
   for (const [x, y, z, sx, sy, sz] of [
-    [-0.48, 1.42, -2.05, 1.3, 0.78, 1.1],
-    [0.42, 1.38, -1.2, 1.2, 0.72, 1],
-    [-0.38, 1.36, -0.2, 1.35, 0.74, 1.05],
-    [0.46, 1.4, 0.74, 1.24, 0.7, 1],
-    [-0.42, 1.38, 1.66, 1.28, 0.74, 1.06],
-    [0.3, 1.35, 2.34, 1.08, 0.68, 0.9],
+    [-0.52, 1.48, -2.12, 1.4, 0.82, 1.14],
+    [0.46, 1.43, -1.28, 1.24, 0.76, 1.04],
+    [-0.42, 1.42, -0.24, 1.38, 0.76, 1.08],
+    [0.5, 1.46, 0.82, 1.28, 0.72, 1.02],
+    [-0.46, 1.44, 1.72, 1.3, 0.76, 1.08],
+    [0.34, 1.4, 2.44, 1.12, 0.7, 0.92],
   ]) {
     const lump = new THREE.Mesh(meatGeometry, meatMaterial);
     lump.position.set(x, y, z);
@@ -699,13 +734,13 @@ function createCar() {
   const lettuceGeometry = new THREE.SphereGeometry(0.22, 10, 10);
 
   for (const [x, y, z, scale] of [
-    [-0.68, 1.78, -2.1, 1.1],
-    [0.08, 1.74, -1.46, 1],
-    [0.62, 1.76, -0.72, 1.05],
-    [-0.2, 1.8, -0.08, 0.95],
-    [-0.62, 1.75, 0.88, 1],
-    [0.28, 1.8, 1.54, 1.08],
-    [0.72, 1.74, 2.16, 1],
+    [-0.78, 1.88, -2.1, 1.14],
+    [0.12, 1.82, -1.52, 1.04],
+    [0.76, 1.84, -0.72, 1.1],
+    [-0.24, 1.9, -0.02, 0.98],
+    [-0.74, 1.82, 0.98, 1.04],
+    [0.34, 1.88, 1.58, 1.12],
+    [0.86, 1.8, 2.2, 1.02],
   ]) {
     const leaf = new THREE.Mesh(lettuceGeometry, lettuceMaterial);
     leaf.position.set(x, y, z);
@@ -716,11 +751,11 @@ function createCar() {
   const cheeseGeometry = new THREE.BoxGeometry(0.12, 0.12, 0.86);
 
   for (const [x, y, z, rot] of [
-    [-0.16, 1.7, -1.86, 0.42],
-    [0.26, 1.66, -0.96, -0.2],
-    [-0.18, 1.68, 0.18, 0.34],
-    [0.18, 1.69, 1.12, -0.36],
-    [-0.08, 1.71, 2.02, 0.18],
+    [-0.18, 1.78, -1.92, 0.42],
+    [0.3, 1.74, -0.98, -0.2],
+    [-0.2, 1.76, 0.24, 0.34],
+    [0.2, 1.78, 1.18, -0.36],
+    [-0.08, 1.8, 2.08, 0.18],
   ]) {
     const strip = new THREE.Mesh(cheeseGeometry, cheeseMaterial);
     strip.position.set(x, y, z);
@@ -731,10 +766,10 @@ function createCar() {
   const tomatoGeometry = new THREE.BoxGeometry(0.22, 0.2, 0.22);
 
   for (const [x, y, z] of [
-    [0.52, 1.58, -1.88],
-    [-0.44, 1.55, -0.86],
-    [0.48, 1.58, 0.42],
-    [-0.38, 1.56, 1.5],
+    [0.58, 1.66, -1.94],
+    [-0.48, 1.62, -0.9],
+    [0.54, 1.66, 0.46],
+    [-0.42, 1.64, 1.56],
   ]) {
     const tomato = new THREE.Mesh(tomatoGeometry, tomatoMaterial);
     tomato.position.set(x, y, z);
@@ -744,11 +779,11 @@ function createCar() {
 
   const headlightGeometry = new THREE.SphereGeometry(0.12, 10, 10);
   const leftHeadlight = new THREE.Mesh(headlightGeometry, creamMaterial);
-  leftHeadlight.position.set(-0.58, 0.88, 2.74);
+  leftHeadlight.position.set(-0.68, 0.94, 2.92);
   car.add(leftHeadlight);
 
   const rightHeadlight = leftHeadlight.clone();
-  rightHeadlight.position.x = 0.58;
+  rightHeadlight.position.x = 0.68;
   car.add(rightHeadlight);
 
   const taillightMaterial = new THREE.MeshStandardMaterial({
@@ -759,21 +794,18 @@ function createCar() {
     metalness: 0.08,
   });
   const leftTaillight = new THREE.Mesh(headlightGeometry, taillightMaterial);
-  leftTaillight.position.set(-0.52, 0.86, -2.76);
+  leftTaillight.position.set(-0.62, 0.92, -2.96);
   car.add(leftTaillight);
 
   const rightTaillight = leftTaillight.clone();
-  rightTaillight.position.x = 0.52;
+  rightTaillight.position.x = 0.62;
   car.add(rightTaillight);
 
-  const wheelGeometry = new THREE.CylinderGeometry(0.54, 0.54, 0.62, 18);
-  wheelGeometry.rotateZ(Math.PI / 2);
-
   const wheelOffsets = [
-    [-1.54, 0.56, 1.7, true],
-    [1.54, 0.56, 1.7, true],
-    [-1.54, 0.56, -1.7, false],
-    [1.54, 0.56, -1.7, false],
+    [-1.78, 0.62, 1.82, true],
+    [1.78, 0.62, 1.82, true],
+    [-1.78, 0.62, -1.82, false],
+    [1.78, 0.62, -1.82, false],
   ];
 
   const wheels = [];
@@ -781,7 +813,7 @@ function createCar() {
 
   for (const [x, y, z, steerable] of wheelOffsets) {
     const holder = new THREE.Group();
-    const wheel = new THREE.Mesh(wheelGeometry, darkMaterial);
+    const wheel = createOffroadWheel(darkMaterial, creamMaterial);
 
     holder.position.set(x, y, z);
     holder.add(wheel);
@@ -1005,7 +1037,63 @@ function syncCarTransform(steerAxis, delta) {
   }
 
   const shadowScale = 1 + Math.min(Math.abs(state.speed) / 90, 0.12);
-  car.userData.shadow.scale.set(1.1 * shadowScale, 0.8 * shadowScale, 1);
+  car.userData.shadow.scale.set(1.24 * shadowScale, 0.86 * shadowScale, 1);
+}
+
+function createOffroadWheel(darkMaterial, creamMaterial) {
+  const wheel = new THREE.Group();
+  const tire = new THREE.Mesh(
+    new THREE.TorusGeometry(0.62, 0.24, 14, 28),
+    new THREE.MeshStandardMaterial({
+      color: 0x171b1f,
+      roughness: 0.92,
+      metalness: 0.02,
+    })
+  );
+  tire.rotation.y = Math.PI / 2;
+  wheel.add(tire);
+
+  const rim = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.36, 0.36, 0.42, 14),
+    new THREE.MeshStandardMaterial({
+      color: 0xd7d4ca,
+      roughness: 0.36,
+      metalness: 0.28,
+    })
+  );
+  rim.rotation.z = Math.PI / 2;
+  wheel.add(rim);
+
+  const hub = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.12, 0.12, 0.48, 10),
+    creamMaterial
+  );
+  hub.rotation.z = Math.PI / 2;
+  wheel.add(hub);
+
+  for (let index = 0; index < 6; index += 1) {
+    const lug = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.16), darkMaterial);
+    const angle = (index / 6) * Math.PI * 2;
+    lug.position.set(0, Math.cos(angle) * 0.22, Math.sin(angle) * 0.22);
+    wheel.add(lug);
+  }
+
+  for (let index = 0; index < 8; index += 1) {
+    const tread = new THREE.Mesh(
+      new THREE.BoxGeometry(0.18, 0.1, 0.22),
+      new THREE.MeshStandardMaterial({
+        color: 0x24292f,
+        roughness: 0.96,
+        metalness: 0.02,
+      })
+    );
+    const angle = (index / 8) * Math.PI * 2;
+    tread.position.set(0, Math.cos(angle) * 0.6, Math.sin(angle) * 0.6);
+    tread.rotation.x = angle;
+    wheel.add(tread);
+  }
+
+  return wheel;
 }
 
 function updateCamera(delta, snap) {
