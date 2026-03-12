@@ -1,18 +1,14 @@
 :root {
-  --red: #b22234;
-  --white: #ffffff;
-  --blue: #3c3b6e;
-  --gold: #ffd76a;
-  --gold-hot: #ff9a45;
-  --ink: #221109;
-  --skin-light: #f5c8a1;
-  --skin-mid: #d89466;
-  --skin-dark: #ae663e;
-  --metal-top: #626f7e;
-  --metal-mid: #313947;
-  --metal-low: #151b24;
-  --smoke: rgba(229, 238, 247, 0.34);
-  --shadow: rgba(8, 4, 2, 0.34);
+  --flag-green: #006847;
+  --flag-white: #ffffff;
+  --flag-red: #ce1126;
+  --cream: #fff6d7;
+  --gold: #f0c04a;
+  --gold-deep: #8a5a0c;
+  --wood-light: #9d5e31;
+  --wood-mid: #73411d;
+  --wood-dark: #3d1d0b;
+  --shadow: rgba(0, 0, 0, 0.34);
 }
 
 * {
@@ -27,8 +23,9 @@ body {
 
 body {
   overflow-x: hidden;
-  background: #07111f;
-  color: var(--white);
+  background: #140907;
+  color: var(--cream);
+  font-family: "Bebas Neue", sans-serif;
 }
 
 .asset-defs {
@@ -39,13 +36,11 @@ body {
 }
 
 .app {
-  width: 100%;
   min-height: 100vh;
 }
 
 .scene {
   position: relative;
-  width: 100%;
   min-height: 100vh;
   display: grid;
   place-items: center;
@@ -53,19 +48,19 @@ body {
   overflow: hidden;
   isolation: isolate;
   background:
-    radial-gradient(circle at top, rgba(255, 242, 213, 0.1), transparent 24%),
-    linear-gradient(180deg, rgba(10, 17, 31, 0.14), rgba(8, 9, 14, 0.3));
+    radial-gradient(circle at 50% 20%, rgba(255, 255, 255, 0.08), transparent 24%),
+    linear-gradient(180deg, rgba(9, 18, 13, 0.24), rgba(20, 9, 7, 0.62));
 }
 
 .scene::before {
   content: "";
   position: absolute;
-  inset: auto -10% -2% -10%;
-  height: 30%;
+  inset: auto -12% -3% -12%;
+  height: 34%;
   background:
-    radial-gradient(circle at 22% 32%, rgba(255, 164, 91, 0.18), transparent 20%),
-    radial-gradient(circle at 78% 30%, rgba(255, 141, 81, 0.16), transparent 17%),
-    linear-gradient(180deg, rgba(31, 23, 22, 0) 0%, rgba(16, 11, 11, 0.7) 36%, rgba(6, 4, 4, 0.92) 100%);
+    radial-gradient(circle at 30% 35%, rgba(255, 214, 126, 0.18), transparent 16%),
+    radial-gradient(circle at 68% 28%, rgba(255, 143, 75, 0.2), transparent 14%),
+    linear-gradient(180deg, rgba(21, 11, 8, 0) 0%, rgba(21, 11, 8, 0.66) 42%, rgba(10, 4, 3, 0.96) 100%);
   z-index: 2;
 }
 
@@ -74,40 +69,42 @@ body {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(circle at center, transparent 0 28%, rgba(7, 7, 11, 0.1) 56%, rgba(2, 4, 8, 0.58) 100%),
-    linear-gradient(110deg, rgba(255, 255, 255, 0.08), transparent 28%),
-    linear-gradient(250deg, rgba(255, 255, 255, 0.04), transparent 32%);
+    radial-gradient(circle at center, transparent 0 34%, rgba(8, 5, 4, 0.16) 62%, rgba(8, 5, 4, 0.6) 100%),
+    linear-gradient(112deg, rgba(255, 255, 255, 0.1), transparent 24%),
+    linear-gradient(248deg, rgba(255, 255, 255, 0.08), transparent 28%);
   pointer-events: none;
-  z-index: 5;
+  z-index: 8;
 }
 
-.flag,
+.flag-layer,
 .fireworks,
-.arsenal,
+.feast,
+.coins,
 .content {
   position: relative;
 }
 
-.flag {
+.flag-layer {
   position: absolute;
   inset: -4%;
   overflow: hidden;
   z-index: 0;
 }
 
-.flag-svg {
+.flag-art {
   width: 100%;
   height: 100%;
   display: block;
-  opacity: 0.98;
-  transform: scale(1.09);
-  animation: flag-swell 7s ease-in-out infinite;
+  object-fit: cover;
+  transform: scale(1.08);
+  filter: saturate(1.06) contrast(1.02);
+  animation: flag-swell 8.5s ease-in-out infinite;
 }
 
 .flag-wave,
 .flag-shadow {
   position: absolute;
-  inset: -7%;
+  inset: -8%;
   pointer-events: none;
 }
 
@@ -119,16 +116,17 @@ body {
   background:
     linear-gradient(
       90deg,
-      rgba(255, 255, 255, 0.36) 0%,
+      rgba(255, 255, 255, 0.3) 0%,
       rgba(255, 255, 255, 0.08) 9%,
-      rgba(0, 0, 0, 0.18) 20%,
-      rgba(255, 255, 255, 0.09) 34%,
-      rgba(0, 0, 0, 0.2) 48%,
-      rgba(255, 255, 255, 0.1) 64%,
-      rgba(0, 0, 0, 0.16) 80%,
+      rgba(0, 0, 0, 0.16) 18%,
+      rgba(255, 255, 255, 0.08) 31%,
+      rgba(0, 0, 0, 0.18) 46%,
+      rgba(255, 255, 255, 0.08) 62%,
+      rgba(0, 0, 0, 0.14) 78%,
       rgba(255, 255, 255, 0.12) 100%
     );
-  animation: flag-wave-a 4.6s ease-in-out infinite;
+  opacity: 0.8;
+  animation: flag-wave-a 5.3s ease-in-out infinite;
 }
 
 .flag-wave-b {
@@ -136,50 +134,55 @@ body {
     linear-gradient(
       90deg,
       rgba(0, 0, 0, 0.18) 0%,
-      rgba(255, 255, 255, 0.08) 14%,
-      rgba(0, 0, 0, 0.14) 30%,
-      rgba(255, 255, 255, 0.08) 44%,
-      rgba(0, 0, 0, 0.2) 62%,
-      rgba(255, 255, 255, 0.06) 82%,
-      rgba(0, 0, 0, 0.12) 100%
+      rgba(255, 255, 255, 0.08) 16%,
+      rgba(0, 0, 0, 0.16) 34%,
+      rgba(255, 255, 255, 0.08) 52%,
+      rgba(0, 0, 0, 0.18) 72%,
+      rgba(255, 255, 255, 0.1) 100%
     );
-  opacity: 0.65;
-  animation: flag-wave-b 6.4s ease-in-out infinite;
+  opacity: 0.72;
+  animation: flag-wave-b 7.1s ease-in-out infinite;
 }
 
 .flag-shadow {
   background:
-    radial-gradient(circle at 20% 22%, rgba(255, 255, 255, 0.16), transparent 20%),
-    radial-gradient(circle at 76% 30%, rgba(255, 255, 255, 0.12), transparent 18%),
-    linear-gradient(180deg, rgba(3, 4, 8, 0) 0%, rgba(3, 4, 8, 0.2) 100%);
-  opacity: 0.55;
-  animation: flag-glow 3.9s ease-in-out infinite;
+    radial-gradient(circle at 22% 24%, rgba(255, 255, 255, 0.18), transparent 18%),
+    radial-gradient(circle at 74% 22%, rgba(255, 255, 255, 0.16), transparent 20%),
+    linear-gradient(180deg, rgba(8, 8, 8, 0) 0%, rgba(8, 8, 8, 0.16) 100%);
+  opacity: 0.78;
+  animation: flag-glow 4.2s ease-in-out infinite;
 }
 
 .fireworks,
-.arsenal {
+.feast,
+.coins {
   position: absolute;
   inset: 0;
   pointer-events: none;
 }
 
-.arsenal {
+.fireworks {
   z-index: 3;
 }
 
-.fireworks {
+.feast {
   z-index: 4;
 }
 
-.content {
+.coins {
   z-index: 6;
-  display: grid;
-  justify-items: center;
-  gap: 0.7rem;
 }
 
-.gesture-button {
+.content {
+  z-index: 7;
+  display: grid;
+  justify-items: center;
+  gap: 0.75rem;
+}
+
+.chest-button {
   position: relative;
+  width: min(74vw, 520px);
   border: 0;
   padding: 0;
   background: transparent;
@@ -187,834 +190,634 @@ body {
   appearance: none;
 }
 
-.gesture-button:focus-visible {
-  outline: 3px solid rgba(255, 255, 255, 0.9);
+.chest-button::before {
+  content: "";
+  position: absolute;
+  inset: 18% 10% 7%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 204, 98, 0.34), rgba(255, 204, 98, 0));
+  filter: blur(34px);
+  opacity: 0.84;
+  transition: transform 360ms ease, opacity 360ms ease;
+  z-index: 0;
+}
+
+.app.opened .chest-button::before {
+  transform: scale(1.16);
+  opacity: 1;
+}
+
+.chest-button:focus-visible {
+  outline: 3px solid rgba(255, 246, 215, 0.95);
   outline-offset: 12px;
   border-radius: 28px;
 }
 
-.button-glow {
-  position: absolute;
-  inset: 15% 12% 8%;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(255, 198, 96, 0.24), rgba(255, 148, 71, 0));
-  filter: blur(34px);
-  transition: opacity 320ms ease, transform 320ms ease;
-}
-
-.hand-stage {
+.chest-svg {
   position: relative;
-  display: block;
-  width: min(52vw, 390px);
-  height: min(78vw, 480px);
-}
-
-.hand-stage::before {
-  content: "";
-  position: absolute;
-  inset: 18% 14% 4%;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(255, 176, 91, 0.24), transparent 70%);
-  filter: blur(24px);
-}
-
-.hand {
-  position: relative;
+  z-index: 1;
   display: block;
   width: 100%;
-  height: 100%;
-  filter: drop-shadow(0 24px 32px var(--shadow));
+  height: auto;
+  filter: drop-shadow(0 1.4rem 1.8rem rgba(0, 0, 0, 0.34));
 }
 
-.hand::before {
-  content: "";
-  position: absolute;
-  left: 19%;
-  right: 17%;
-  top: 33%;
-  bottom: 17%;
-  border-radius: 40px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.18), transparent 36%, rgba(85, 36, 16, 0.16)),
-    radial-gradient(circle at 48% 30%, rgba(255, 255, 255, 0.2), transparent 42%);
-  z-index: 3;
-  opacity: 0.7;
+.chest-shadow {
+  fill: rgba(14, 6, 3, 0.35);
 }
 
-.hand::after {
-  content: "";
-  position: absolute;
-  left: 11%;
-  right: 9%;
-  bottom: 7%;
-  height: 10%;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.18);
-  filter: blur(12px);
-}
-
-.finger,
-.thumb,
-.palm,
-.wrist {
-  position: absolute;
-  display: block;
-  background:
-    linear-gradient(180deg, var(--skin-light) 0%, var(--skin-mid) 58%, var(--skin-dark) 100%);
-  border: 4px solid var(--ink);
-  box-shadow:
-    inset 0 10px 12px rgba(255, 255, 255, 0.16),
-    inset 0 -12px 16px rgba(76, 32, 10, 0.2);
-}
-
-.finger,
-.thumb,
-.knuckles {
-  transition:
-    transform 320ms cubic-bezier(0.2, 0.8, 0.2, 1),
-    height 320ms ease,
-    top 320ms ease,
-    left 320ms ease,
-    width 320ms ease,
-    border-radius 320ms ease,
-    opacity 260ms ease;
-}
-
-.finger {
-  width: 22%;
-  height: 33%;
-  top: 13%;
-  border-radius: 30px;
-  z-index: 6;
-}
-
-.finger::before {
-  content: "";
-  position: absolute;
-  inset: 11% 15% auto;
-  height: 12%;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.24);
-}
-
-.finger-index {
-  left: 9%;
-}
-
-.finger-middle {
-  left: 30%;
-}
-
-.finger-ring {
-  left: 51%;
-}
-
-.finger-pinky {
-  left: 72%;
-  width: 20%;
-}
-
-.thumb {
-  width: 30%;
-  height: 21%;
-  left: 0;
-  top: 39%;
-  border-radius: 26px 30px 28px 24px;
-  transform: rotate(-28deg);
-  z-index: 7;
-}
-
-.palm {
-  width: 84%;
-  height: 45%;
-  left: 8%;
-  bottom: 13%;
-  border-radius: 38px 38px 48px 48px;
-  z-index: 2;
-}
-
-.wrist {
-  width: 38%;
-  height: 23%;
-  left: 31%;
-  bottom: 0;
-  border-top: 0;
-  border-radius: 0 0 30px 30px;
-  z-index: 1;
-}
-
-.knuckles {
-  position: absolute;
-  left: 16%;
-  top: 29%;
-  width: 68%;
-  height: 14%;
-  border-radius: 999px;
-  background: radial-gradient(ellipse at center, rgba(94, 41, 18, 0.24), rgba(255, 255, 255, 0) 72%);
-  z-index: 8;
-}
-
-.fist .finger {
-  height: 22%;
-  top: 29%;
-  border-radius: 20px;
-}
-
-.fist .finger-index {
-  transform: rotate(-5deg);
-}
-
-.fist .finger-middle {
-  transform: rotate(1deg);
-}
-
-.fist .finger-ring {
-  transform: rotate(4deg);
-}
-
-.fist .finger-pinky {
-  transform: rotate(8deg);
-}
-
-.fist .thumb {
-  top: 41%;
-  left: 4%;
-  transform: rotate(-31deg);
-}
-
-.flipped .finger-index,
-.flipped .finger-ring {
-  height: 19%;
-  top: 33%;
-}
-
-.flipped .finger-pinky {
-  width: 18%;
-  height: 17%;
-  top: 34%;
-  left: 73%;
-}
-
-.flipped .finger-index {
-  transform: rotate(-7deg);
-}
-
-.flipped .finger-middle {
-  height: 56%;
-  top: 0;
-  transform: translateY(-2%) scaleX(1.02);
-  border-radius: 28px 28px 34px 34px;
-}
-
-.flipped .finger-ring {
-  transform: rotate(5deg);
-}
-
-.flipped .finger-pinky {
-  transform: rotate(10deg);
-}
-
-.flipped .thumb {
-  top: 44%;
-  left: 5%;
-  transform: rotate(-39deg);
-}
-
-.flipped .knuckles {
-  top: 31%;
-}
-
-.weapon-svg,
-.missile-svg,
-.tank-svg {
-  width: 100%;
-  height: 100%;
-  display: block;
-  overflow: visible;
-}
-
-.weapon-svg {
-  color: #171d25;
-}
-
-.missile-svg {
-  color: #c7d0d9;
-}
-
-.tank-svg {
-  color: #1d242d;
-}
-
-.weapon-svg .body,
-.missile-svg .body,
-.tank-svg .body {
-  fill: currentColor;
-}
-
-.weapon-svg .detail {
-  fill: #090d13;
-  opacity: 0.84;
-}
-
-.missile-svg .detail {
-  fill: #66717f;
-}
-
-.tank-svg .detail {
-  fill: #0d1218;
-  opacity: 0.88;
-}
-
-.burst,
-.fan,
-.missile,
-.tank {
-  position: absolute;
+.chest-mouth {
+  fill: rgba(40, 15, 4, 0.76);
   opacity: 0;
-  transition:
-    opacity 260ms ease,
-    transform 420ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  transform: translateY(8px) scaleX(0.96);
+  transform-origin: 260px 202px;
+  transition: opacity 260ms ease, transform 420ms ease;
 }
 
-.burst {
-  width: clamp(110px, 16vw, 180px);
-  aspect-ratio: 1;
-  background: repeating-conic-gradient(from 0deg, var(--gold) 0 10deg, transparent 10deg 18deg);
-  -webkit-mask: radial-gradient(circle, transparent 0 17%, #000 18% 64%, transparent 65%);
-  mask: radial-gradient(circle, transparent 0 17%, #000 18% 64%, transparent 65%);
-  transform: scale(0.15);
+.chest-front,
+.chest-rim,
+.lid-main,
+.lid-highlight {
+  stroke: var(--wood-dark);
+  stroke-width: 8;
 }
 
-.burst::before {
-  content: "";
-  position: absolute;
-  inset: 24%;
-  border-radius: 50%;
-  background: radial-gradient(circle, var(--gold-hot), transparent 70%);
+.chest-front,
+.lid-main {
+  fill: url(#woodMain);
 }
 
-.burst-a {
-  top: 8%;
-  left: 10%;
+.chest-rim {
+  fill: #844b27;
 }
 
-.burst-b {
-  top: 10%;
-  right: 12%;
+.lid-highlight {
+  fill: url(#woodDark);
+  opacity: 0.4;
 }
 
-.burst-c {
-  top: 26%;
-  left: 16%;
+.chest-band,
+.chest-lock,
+.lid-band,
+.lid-lock {
+  fill: url(#brass);
+  stroke: #7a5210;
+  stroke-width: 6;
 }
 
-.burst-d {
-  top: 24%;
-  right: 20%;
+.chest-lock-slot {
+  fill: #5e3814;
 }
 
-.fan {
-  left: 50%;
-  top: 45%;
-  width: min(48vw, 520px);
-  height: 118px;
-  filter: drop-shadow(0 18px 24px rgba(0, 0, 0, 0.34));
-}
-
-.fan::before,
-.fan::after {
-  content: "";
-  position: absolute;
-  top: 50%;
+.coin-peek {
+  fill: var(--gold);
+  stroke: var(--gold-deep);
+  stroke-width: 6;
   opacity: 0;
+  transform: translateY(18px) scale(0.86);
+  transform-origin: 260px 190px;
+  transition: opacity 260ms ease, transform 460ms cubic-bezier(0.22, 0.78, 0.18, 1);
 }
 
-.fan::before {
-  width: 74px;
-  height: 74px;
-  background:
-    radial-gradient(circle, rgba(255, 255, 255, 0.92) 0 20%, rgba(255, 209, 95, 0.95) 21% 40%, rgba(255, 138, 52, 0.9) 41% 58%, rgba(255, 138, 52, 0) 59%);
-  clip-path: polygon(0 50%, 26% 36%, 18% 16%, 46% 28%, 54% 0, 64% 28%, 92% 16%, 76% 40%, 100% 50%, 76% 60%, 92% 84%, 64% 72%, 54% 100%, 46% 72%, 18% 84%, 26% 64%);
-  filter: drop-shadow(0 0 16px rgba(255, 157, 73, 0.5));
-  transform: translateY(-50%);
+.chest-lid {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  transition: transform 560ms cubic-bezier(0.22, 0.78, 0.16, 1), filter 560ms ease;
 }
 
-.fan::after {
-  width: 220px;
-  height: 6px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, rgba(255, 234, 172, 0) 0%, rgba(255, 217, 118, 0.75) 22%, rgba(255, 255, 255, 1) 44%, rgba(255, 188, 88, 0.75) 70%, rgba(255, 234, 172, 0) 100%);
-  box-shadow:
-    0 -12px 0 rgba(255, 212, 114, 0.68),
-    0 12px 0 rgba(255, 212, 114, 0.62),
-    56px -6px 0 rgba(255, 255, 255, 0.45);
-  transform: translateY(-50%);
+.app.opened .chest-lid {
+  transform: translateY(-96px) scaleY(0.7);
+  filter: drop-shadow(0 0.75rem 0.8rem rgba(0, 0, 0, 0.2));
 }
 
-.fan-left .weapon-svg {
-  transform: scaleX(-1);
+.app.opened .chest-mouth {
+  opacity: 1;
+  transform: translateY(0) scaleX(1);
 }
 
-.fan-left::before {
-  left: -52px;
+.app.opened .coin-peek {
+  opacity: 1;
+  transform: translateY(-2px) scale(1);
 }
 
-.fan-left::after {
-  left: -208px;
-}
-
-.fan-right::before {
-  right: -52px;
-}
-
-.fan-right::after {
-  right: -208px;
-  transform: translateY(-50%) scaleX(-1);
-}
-
-.fan-left.fan-rear {
-  z-index: 1;
-  transform: translate(-50%, -64%) perspective(1400px) rotateY(84deg) rotateZ(-34deg) scale(0.18);
-}
-
-.fan-left.fan-mid {
-  z-index: 2;
-  transform: translate(-52%, -44%) perspective(1400px) rotateY(80deg) rotateZ(-18deg) scale(0.22);
-}
-
-.fan-left.fan-front {
-  z-index: 3;
-  transform: translate(-54%, -20%) perspective(1400px) rotateY(76deg) rotateZ(-4deg) scale(0.28);
-}
-
-.fan-right.fan-rear {
-  z-index: 1;
-  transform: translate(4%, -64%) perspective(1400px) rotateY(-84deg) rotateZ(34deg) scale(0.18);
-}
-
-.fan-right.fan-mid {
-  z-index: 2;
-  transform: translate(6%, -44%) perspective(1400px) rotateY(-80deg) rotateZ(18deg) scale(0.22);
-}
-
-.fan-right.fan-front {
-  z-index: 3;
-  transform: translate(8%, -20%) perspective(1400px) rotateY(-76deg) rotateZ(4deg) scale(0.28);
-}
-
-.missile {
-  left: 50%;
-  top: 38%;
-  filter: drop-shadow(0 8px 14px rgba(0, 0, 0, 0.28));
-}
-
-.missile::after {
-  content: "";
-  position: absolute;
-  top: 50%;
-  width: 96px;
-  height: 14px;
-  border-radius: 999px;
-  opacity: 0;
-  background: linear-gradient(90deg, rgba(255, 217, 118, 0) 0%, rgba(255, 217, 118, 0.95) 36%, rgba(255, 248, 226, 1) 62%, rgba(255, 217, 118, 0) 100%);
-  filter: blur(2px);
-}
-
-.missile-left .missile-svg {
-  transform: scaleX(-1);
-}
-
-.missile-left::after {
-  right: -64px;
-  transform: translateY(-50%);
-}
-
-.missile-right::after {
-  left: -64px;
-  transform: translateY(-50%);
-}
-
-.missile.patriot {
-  width: min(26vw, 280px);
-  height: 82px;
-}
-
-.missile.tomahawk {
-  width: min(31vw, 340px);
-  height: 98px;
-}
-
-.missile-left.missile-rear {
-  z-index: 1;
-  transform: translate(-38%, -56%) rotate(-56deg) scale(0.22);
-}
-
-.missile-left.missile-front {
-  z-index: 3;
-  transform: translate(-44%, -18%) rotate(-24deg) scale(0.24);
-}
-
-.missile-right.missile-rear {
-  z-index: 1;
-  transform: translate(-62%, -56%) rotate(56deg) scale(0.22);
-}
-
-.missile-right.missile-front {
-  z-index: 3;
-  transform: translate(-56%, -18%) rotate(24deg) scale(0.24);
-}
-
-.tank {
-  left: 50%;
-  bottom: 7%;
-  width: min(28vw, 280px);
-  height: min(16vw, 160px);
-  filter: drop-shadow(0 18px 24px rgba(0, 0, 0, 0.34));
-}
-
-.tank-left .tank-svg {
-  transform: scaleX(-1);
-}
-
-.tank-left {
-  z-index: 2;
-  transform: translate(-54%, 0) perspective(1200px) rotateY(82deg) scale(0.24);
-}
-
-.tank-right {
-  z-index: 2;
-  transform: translate(-46%, 0) perspective(1200px) rotateY(-82deg) scale(0.24);
+.hint,
+.message {
+  margin: 0;
+  text-align: center;
 }
 
 .hint {
-  margin: 0;
-  font-family: "Bebas Neue", Impact, sans-serif;
-  font-size: clamp(1.4rem, 3vw, 2rem);
-  letter-spacing: 0.2em;
+  font-size: clamp(1rem, 2vw, 1.3rem);
+  letter-spacing: 0.28em;
   text-transform: uppercase;
-  color: rgba(255, 246, 230, 0.88);
-  text-align: center;
+  color: rgba(255, 246, 215, 0.92);
+  text-shadow: 0 0.12rem 0.65rem rgba(0, 0, 0, 0.3);
   transition: opacity 220ms ease, transform 220ms ease;
 }
 
+.app.opened .hint {
+  opacity: 0.74;
+  transform: translateY(-0.1rem);
+}
+
 .message {
-  margin: 0;
-  max-width: 9ch;
-  font-family: "Black Ops One", Impact, sans-serif;
-  font-size: clamp(2.4rem, 9vw, 6rem);
+  font-family: "Black Ops One", cursive;
+  font-size: clamp(2.6rem, 8.2vw, 6.4rem);
   line-height: 0.9;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  text-align: center;
-  color: #fff1db;
+  max-width: 12ch;
+  color: #fff5d1;
   text-shadow:
-    0 0 22px rgba(255, 135, 59, 0.52),
-    0 4px 0 rgba(123, 20, 8, 0.85),
-    0 18px 34px rgba(0, 0, 0, 0.42);
+    0 0.08em 0 #7a2317,
+    0 0.18em 0.4em rgba(0, 0, 0, 0.35),
+    0 0 2rem rgba(255, 214, 117, 0.4);
   opacity: 0;
-  transform: translateY(18px) scale(0.92);
-  transition:
-    opacity 260ms ease,
-    transform 320ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  transform: translateY(22px) scale(0.94);
+  transition: opacity 320ms ease 90ms, transform 460ms cubic-bezier(0.22, 0.78, 0.16, 1) 90ms;
 }
 
-.app.armed .button-glow {
-  transform: scale(1.26);
-  opacity: 1;
-}
-
-.app.armed .message {
+.app.opened .message {
   opacity: 1;
   transform: translateY(0) scale(1);
 }
 
-.app.armed .hint {
-  opacity: 0.3;
-  transform: translateY(-8px);
+.food,
+.rocket,
+.coin {
+  position: absolute;
+  left: 50%;
+  top: 58%;
+  opacity: 0;
 }
 
-.app.armed .fan,
-.app.armed .missile,
-.app.armed .tank,
-.app.armed .burst {
-  opacity: 1;
+.food {
+  filter: drop-shadow(0 1rem 1rem rgba(0, 0, 0, 0.28));
+  transform: translate(-50%, -10%) scale(0.32) rotate(0deg);
 }
 
-.app.armed .fan::before,
-.app.armed .fan::after,
-.app.armed .missile::after {
-  opacity: 1;
+.food-svg {
+  display: block;
+  width: 100%;
+  height: auto;
 }
 
-.app.armed .fan-left.fan-rear {
-  transform: translate(-80%, -102%) perspective(1400px) rotateY(76deg) rotateZ(-44deg) scale(0.92);
+.food-left.food-a {
+  width: clamp(128px, 18vw, 228px);
+  --x: -31vw;
+  --y: -22vh;
+  --rot: -24deg;
+  --delay: 60ms;
 }
 
-.app.armed .fan-left.fan-mid {
-  transform: translate(-102%, -62%) perspective(1400px) rotateY(68deg) rotateZ(-21deg) scale(1.1);
+.food-left.food-b {
+  width: clamp(94px, 12vw, 150px);
+  --x: -22vw;
+  --y: -8vh;
+  --rot: -16deg;
+  --delay: 120ms;
 }
 
-.app.armed .fan-left.fan-front {
-  transform: translate(-122%, -18%) perspective(1400px) rotateY(58deg) rotateZ(-2deg) scale(1.28);
+.food-left.food-c {
+  width: clamp(74px, 10vw, 120px);
+  --x: -14vw;
+  --y: -28vh;
+  --rot: -9deg;
+  --delay: 20ms;
 }
 
-.app.armed .fan-right.fan-rear {
-  transform: translate(18%, -102%) perspective(1400px) rotateY(-76deg) rotateZ(44deg) scale(0.92);
+.food-left.food-d {
+  width: clamp(120px, 16vw, 208px);
+  --x: -36vw;
+  --y: -7vh;
+  --rot: -12deg;
+  --delay: 180ms;
 }
 
-.app.armed .fan-right.fan-mid {
-  transform: translate(32%, -62%) perspective(1400px) rotateY(-68deg) rotateZ(21deg) scale(1.1);
+.food-right.food-a {
+  width: clamp(120px, 16vw, 208px);
+  --x: 30vw;
+  --y: -20vh;
+  --rot: 23deg;
+  --delay: 80ms;
 }
 
-.app.armed .fan-right.fan-front {
-  transform: translate(42%, -18%) perspective(1400px) rotateY(-58deg) rotateZ(2deg) scale(1.28);
+.food-right.food-b {
+  width: clamp(122px, 17vw, 220px);
+  --x: 20vw;
+  --y: -9vh;
+  --rot: 15deg;
+  --delay: 140ms;
 }
 
-.app.armed .missile-left.missile-rear {
-  transform: translate(-132%, -122%) rotate(-60deg) scale(0.82);
+.food-right.food-c {
+  width: clamp(74px, 10vw, 120px);
+  --x: 12vw;
+  --y: -27vh;
+  --rot: 9deg;
+  --delay: 40ms;
 }
 
-.app.armed .missile-left.missile-front {
-  transform: translate(-174%, -34%) rotate(-24deg) scale(1.04);
+.food-right.food-d {
+  width: clamp(96px, 12vw, 152px);
+  --x: 36vw;
+  --y: -6vh;
+  --rot: 10deg;
+  --delay: 200ms;
 }
 
-.app.armed .missile-right.missile-rear {
-  transform: translate(30%, -122%) rotate(60deg) scale(0.82);
+.app.opened .food {
+  animation: feast-bloom 880ms cubic-bezier(0.18, 0.84, 0.16, 1) forwards;
+  animation-delay: var(--delay);
 }
 
-.app.armed .missile-right.missile-front {
-  transform: translate(64%, -34%) rotate(24deg) scale(1.04);
+.rocket {
+  width: clamp(8.5rem, 18vw, 14rem);
+  height: clamp(1.2rem, 3vw, 1.8rem);
+  transform-origin: 0 50%;
+  transform: translate(-50%, -50%) rotate(0deg) scaleX(0.15);
+  filter: drop-shadow(0 0 0.75rem rgba(255, 203, 93, 0.45));
 }
 
-.app.armed .tank-left {
-  transform: translate(-138%, 0) perspective(1200px) rotateY(62deg) scale(0.98);
+.rocket::before,
+.rocket::after {
+  content: "";
+  position: absolute;
 }
 
-.app.armed .tank-right {
-  transform: translate(38%, 0) perspective(1200px) rotateY(-62deg) scale(0.98);
+.rocket::before {
+  left: 0;
+  top: 50%;
+  width: 100%;
+  height: 0.38rem;
+  border-radius: 999px;
+  transform: translateY(-50%);
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.98) 0%, rgba(255, 225, 129, 0.88) 18%, rgba(255, 143, 67, 0.68) 48%, rgba(255, 83, 36, 0) 100%);
+  box-shadow: 0 0 1rem rgba(255, 191, 86, 0.32);
 }
 
-.app.armed .fan-left::before,
-.app.armed .fan-left::after {
-  animation: auto-fire-left 90ms steps(2, end) infinite alternate;
+.rocket::after {
+  right: -0.2rem;
+  top: 50%;
+  width: 1.2rem;
+  height: 1.2rem;
+  border-radius: 50%;
+  transform: translateY(-50%);
+  background: radial-gradient(circle, #fff4d2 0 26%, #ffd56e 27% 50%, #ff8c40 51% 70%, rgba(255, 140, 64, 0) 71%);
+  box-shadow:
+    0 0 0.95rem rgba(255, 212, 108, 0.84),
+    0 0 1.9rem rgba(255, 120, 70, 0.36);
 }
 
-.app.armed .fan-right::before,
-.app.armed .fan-right::after {
-  animation: auto-fire-right 90ms steps(2, end) infinite alternate;
+.rocket-left.rocket-a {
+  --angle: -152deg;
+  --x: -18vw;
+  --y: -28vh;
+  --delay: 20ms;
 }
 
-.app.armed .fan-left .weapon-svg {
-  animation: weapon-rattle-left 70ms steps(2, end) infinite alternate;
+.rocket-left.rocket-b {
+  --angle: -139deg;
+  --x: -24vw;
+  --y: -17vh;
+  --delay: 80ms;
 }
 
-.app.armed .fan-right .weapon-svg {
-  animation: weapon-rattle-right 70ms steps(2, end) infinite alternate;
+.rocket-left.rocket-c {
+  --angle: -122deg;
+  --x: -12vw;
+  --y: -36vh;
+  --delay: 140ms;
 }
 
-.app.armed .missile::after {
-  animation: rocket-burn 180ms ease-in-out infinite alternate;
+.rocket-left.rocket-d {
+  --angle: -112deg;
+  --x: -7vw;
+  --y: -21vh;
+  --delay: 190ms;
 }
 
-.app.armed .burst-a {
-  animation: explode 1.9s ease-out infinite;
+.rocket-right.rocket-a {
+  --angle: -28deg;
+  --x: 18vw;
+  --y: -28vh;
+  --delay: 40ms;
 }
 
-.app.armed .burst-b {
-  animation: explode 2.1s ease-out 0.35s infinite;
+.rocket-right.rocket-b {
+  --angle: -41deg;
+  --x: 24vw;
+  --y: -16vh;
+  --delay: 100ms;
 }
 
-.app.armed .burst-c {
-  animation: explode 2s ease-out 0.7s infinite;
+.rocket-right.rocket-c {
+  --angle: -58deg;
+  --x: 12vw;
+  --y: -35vh;
+  --delay: 160ms;
 }
 
-.app.armed .burst-d {
-  animation: explode 2.2s ease-out 1.05s infinite;
+.rocket-right.rocket-d {
+  --angle: -68deg;
+  --x: 7vw;
+  --y: -20vh;
+  --delay: 210ms;
+}
+
+.app.opened .rocket {
+  animation: firework-launch 980ms cubic-bezier(0.18, 0.84, 0.16, 1) forwards;
+  animation-delay: var(--delay);
+}
+
+.app.opened .rocket::after {
+  animation: spark 420ms linear infinite alternate;
+}
+
+.coin {
+  width: clamp(20px, 3vw, 34px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 3px solid #8f5d11;
+  background:
+    radial-gradient(circle at 34% 34%, rgba(255, 255, 230, 0.86), rgba(255, 255, 230, 0) 18%),
+    radial-gradient(circle at 50% 50%, #ffe07a 0 48%, #cb8d19 72%, #84540f 100%);
+  box-shadow:
+    inset 0 0.18rem 0.3rem rgba(255, 255, 255, 0.42),
+    0 0.45rem 0.85rem rgba(0, 0, 0, 0.28);
+  transform: translate(-50%, 0) scale(0.32) rotate(0deg);
+}
+
+.coin::before {
+  content: "";
+  position: absolute;
+  inset: 18%;
+  border-radius: 50%;
+  border: 2px solid rgba(139, 91, 13, 0.62);
+}
+
+.coin-1 {
+  --x: -20vw;
+  --rise: -12vh;
+  --drop: 16vh;
+  --spin: -320deg;
+  --spin-mid: -186deg;
+  --delay: 20ms;
+}
+
+.coin-2 {
+  --x: -15vw;
+  --rise: -15vh;
+  --drop: 14vh;
+  --spin: 280deg;
+  --spin-mid: 162deg;
+  --delay: 60ms;
+}
+
+.coin-3 {
+  --x: -9vw;
+  --rise: -18vh;
+  --drop: 10vh;
+  --spin: -240deg;
+  --spin-mid: -139deg;
+  --delay: 100ms;
+}
+
+.coin-4 {
+  --x: -4vw;
+  --rise: -12vh;
+  --drop: 18vh;
+  --spin: 220deg;
+  --spin-mid: 128deg;
+  --delay: 30ms;
+}
+
+.coin-5 {
+  --x: 3vw;
+  --rise: -19vh;
+  --drop: 9vh;
+  --spin: -310deg;
+  --spin-mid: -180deg;
+  --delay: 70ms;
+}
+
+.coin-6 {
+  --x: 9vw;
+  --rise: -16vh;
+  --drop: 13vh;
+  --spin: 260deg;
+  --spin-mid: 151deg;
+  --delay: 120ms;
+}
+
+.coin-7 {
+  --x: 15vw;
+  --rise: -14vh;
+  --drop: 17vh;
+  --spin: -280deg;
+  --spin-mid: -162deg;
+  --delay: 50ms;
+}
+
+.coin-8 {
+  --x: 22vw;
+  --rise: -11vh;
+  --drop: 19vh;
+  --spin: 340deg;
+  --spin-mid: 197deg;
+  --delay: 95ms;
+}
+
+.coin-9 {
+  --x: -24vw;
+  --rise: -9vh;
+  --drop: 20vh;
+  --spin: -220deg;
+  --spin-mid: -128deg;
+  --delay: 110ms;
+}
+
+.coin-10 {
+  --x: 25vw;
+  --rise: -10vh;
+  --drop: 19vh;
+  --spin: 240deg;
+  --spin-mid: 139deg;
+  --delay: 135ms;
+}
+
+.coin-11 {
+  --x: -1vw;
+  --rise: -22vh;
+  --drop: 8vh;
+  --spin: -360deg;
+  --spin-mid: -210deg;
+  --delay: 10ms;
+}
+
+.coin-12 {
+  --x: 0px;
+  --rise: -14vh;
+  --drop: 16vh;
+  --spin: 290deg;
+  --spin-mid: 168deg;
+  --delay: 150ms;
+}
+
+.app.opened .coin {
+  animation: coin-burst 1.18s cubic-bezier(0.22, 0.84, 0.18, 1) forwards;
+  animation-delay: var(--delay);
+}
+
+@keyframes feast-bloom {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -10%) scale(0.32) rotate(0deg);
+  }
+
+  40% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 1;
+    transform: translate(calc(-50% + var(--x)), calc(-10% + var(--y))) scale(1) rotate(var(--rot));
+  }
+}
+
+@keyframes firework-launch {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) rotate(var(--angle)) scaleX(0.15);
+  }
+
+  18% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 1;
+    transform: translate(calc(-50% + var(--x)), calc(-50% + var(--y))) rotate(var(--angle)) scaleX(1);
+  }
+}
+
+@keyframes coin-burst {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 0) scale(0.32) rotate(0deg);
+  }
+
+  16% {
+    opacity: 1;
+  }
+
+  55% {
+    opacity: 1;
+    transform: translate(calc(-50% + var(--x)), var(--rise)) scale(1) rotate(var(--spin-mid));
+  }
+
+  100% {
+    opacity: 1;
+    transform: translate(calc(-50% + var(--x)), var(--drop)) scale(1) rotate(var(--spin));
+  }
+}
+
+@keyframes spark {
+  from {
+    transform: translateY(-50%) scale(0.92);
+    box-shadow:
+      0 0 0.85rem rgba(255, 212, 108, 0.76),
+      0 0 1.6rem rgba(255, 120, 70, 0.3);
+  }
+
+  to {
+    transform: translateY(-50%) scale(1.08);
+    box-shadow:
+      0 0 1rem rgba(255, 231, 160, 0.92),
+      0 0 2.1rem rgba(255, 120, 70, 0.4);
+  }
 }
 
 @keyframes flag-swell {
   0%,
   100% {
-    transform: scale(1.09) translateX(-1%);
+    transform: scale(1.08) translateX(-0.5%) translateY(0);
   }
+
   50% {
-    transform: scale(1.13) translateX(1%);
+    transform: scale(1.11) translateX(0.5%) translateY(-0.4%);
   }
 }
 
 @keyframes flag-wave-a {
-  0% {
-    transform: translateX(-4%) scaleX(1.04);
-  }
-  50% {
-    transform: translateX(4%) scaleX(0.96);
-  }
+  0%,
   100% {
-    transform: translateX(-4%) scaleX(1.04);
+    transform: translateX(-2%) skewX(-4deg);
+  }
+
+  50% {
+    transform: translateX(2%) skewX(4deg);
   }
 }
 
 @keyframes flag-wave-b {
   0%,
   100% {
-    transform: translateX(-2%);
-    opacity: 0.48;
+    transform: translateX(2%) skewX(3deg);
   }
+
   50% {
-    transform: translateX(2%);
-    opacity: 0.7;
+    transform: translateX(-2%) skewX(-3deg);
   }
 }
 
 @keyframes flag-glow {
   0%,
   100% {
-    transform: translateX(-1%);
-    opacity: 0.5;
+    opacity: 0.7;
   }
+
   50% {
-    transform: translateX(1%);
-    opacity: 0.66;
+    opacity: 0.86;
   }
 }
 
-@keyframes auto-fire-left {
-  0% {
-    opacity: 0.18;
-  }
-  100% {
-    opacity: 1;
-  }
-}
-
-@keyframes auto-fire-right {
-  0% {
-    opacity: 0.18;
-  }
-  100% {
-    opacity: 1;
-  }
-}
-
-@keyframes weapon-rattle-left {
-  0% {
-    transform: scaleX(-1) translateX(0);
-  }
-  100% {
-    transform: scaleX(-1) translateX(3px) translateY(-1px);
-  }
-}
-
-@keyframes weapon-rattle-right {
-  0% {
-    transform: translateX(0);
-  }
-  100% {
-    transform: translateX(3px) translateY(-1px);
-  }
-}
-
-@keyframes rocket-burn {
-  0% {
-    opacity: 0.34;
-    width: 70px;
-  }
-  100% {
-    opacity: 0.95;
-    width: 110px;
-  }
-}
-
-@keyframes explode {
-  0% {
-    transform: scale(0.15);
-    opacity: 0;
-  }
-  18% {
-    opacity: 0.95;
-  }
-  70% {
-    transform: scale(1);
-    opacity: 0.8;
-  }
-  100% {
-    transform: scale(1.22);
-    opacity: 0;
-  }
-}
-
-@media (max-width: 900px) {
-  .hand-stage {
-    width: min(72vw, 360px);
-    height: min(96vw, 450px);
+@media (max-width: 760px) {
+  .scene {
+    padding: 1rem;
   }
 
-  .fan {
-    width: min(72vw, 380px);
-    height: 92px;
+  .content {
+    gap: 0.55rem;
   }
 
-  .app.armed .fan-left.fan-rear {
-    transform: translate(-72%, -98%) perspective(1100px) rotateY(74deg) rotateZ(-40deg) scale(0.76);
+  .chest-button {
+    width: min(92vw, 460px);
   }
 
-  .app.armed .fan-left.fan-mid {
-    transform: translate(-90%, -62%) perspective(1100px) rotateY(66deg) rotateZ(-20deg) scale(0.9);
+  .food-left.food-a {
+    --x: -29vw;
+    --y: -20vh;
   }
 
-  .app.armed .fan-left.fan-front {
-    transform: translate(-106%, -18%) perspective(1100px) rotateY(56deg) rotateZ(-2deg) scale(1.02);
+  .food-left.food-d {
+    --x: -32vw;
+    --y: -7vh;
   }
 
-  .app.armed .fan-right.fan-rear {
-    transform: translate(10%, -98%) perspective(1100px) rotateY(-74deg) rotateZ(40deg) scale(0.76);
+  .food-right.food-a {
+    --x: 27vw;
+    --y: -19vh;
   }
 
-  .app.armed .fan-right.fan-mid {
-    transform: translate(22%, -62%) perspective(1100px) rotateY(-66deg) rotateZ(20deg) scale(0.9);
+  .food-right.food-d {
+    --x: 33vw;
+    --y: -5vh;
   }
 
-  .app.armed .fan-right.fan-front {
-    transform: translate(32%, -18%) perspective(1100px) rotateY(-56deg) rotateZ(2deg) scale(1.02);
-  }
-
-  .missile.patriot {
-    width: 180px;
-    height: 54px;
-  }
-
-  .missile.tomahawk {
-    width: 224px;
-    height: 64px;
-  }
-
-  .app.armed .missile-left.missile-rear {
-    transform: translate(-118%, -112%) rotate(-60deg) scale(0.62);
-  }
-
-  .app.armed .missile-left.missile-front {
-    transform: translate(-154%, -30%) rotate(-24deg) scale(0.8);
-  }
-
-  .app.armed .missile-right.missile-rear {
-    transform: translate(18%, -112%) rotate(60deg) scale(0.62);
-  }
-
-  .app.armed .missile-right.missile-front {
-    transform: translate(50%, -30%) rotate(24deg) scale(0.8);
-  }
-
-  .tank {
-    width: 180px;
-    height: 102px;
-  }
-
-  .app.armed .tank-left {
-    transform: translate(-118%, 0) perspective(1000px) rotateY(60deg) scale(0.78);
-  }
-
-  .app.armed .tank-right {
-    transform: translate(18%, 0) perspective(1000px) rotateY(-60deg) scale(0.78);
+  .rocket-left.rocket-c,
+  .rocket-right.rocket-c {
+    --y: -31vh;
   }
 }
 
@@ -1025,5 +828,15 @@ body {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .flag-art {
+    transform: scale(1.08);
+  }
+
+  .flag-wave,
+  .flag-shadow {
+    animation: none;
   }
 }
