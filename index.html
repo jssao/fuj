@@ -2,21 +2,21 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Happy Birthday Juan Pablo</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Happy Birthday Juan Pablo Raceway</title>
     <meta
       name="description"
-      content="Tap the chest to spill coins, fireworks, and a burst of Mexican food."
+      content="Race the figure-eight track to unlock the birthday chest for Juan Pablo."
     />
     <link rel="canonical" href="https://jssao.github.io/fuj/" />
     <meta name="theme-color" content="#006847" />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://jssao.github.io/fuj/" />
-    <meta property="og:site_name" content="Happy Birthday Juan Pablo" />
-    <meta property="og:title" content="Happy Birthday Juan Pablo" />
+    <meta property="og:site_name" content="Happy Birthday Juan Pablo Raceway" />
+    <meta property="og:title" content="Happy Birthday Juan Pablo Raceway" />
     <meta
       property="og:description"
-      content="Tap the chest to spill coins, fireworks, and a burst of Mexican food."
+      content="Race the figure-eight track to unlock the birthday chest for Juan Pablo."
     />
     <meta
       property="og:image"
@@ -31,13 +31,13 @@
     <meta property="og:image:height" content="630" />
     <meta
       property="og:image:alt"
-      content="A Mexican flag backdrop with a wooden chest, coins, fireworks, and the words Happy Birthday Juan Pablo."
+      content="A birthday treasure chest bursting open with coins and Mexican food after the race."
     />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Happy Birthday Juan Pablo" />
+    <meta name="twitter:title" content="Happy Birthday Juan Pablo Raceway" />
     <meta
       name="twitter:description"
-      content="Tap the chest to spill coins, fireworks, and a burst of Mexican food."
+      content="Race the figure-eight track to unlock the birthday chest for Juan Pablo."
     />
     <meta
       name="twitter:image"
@@ -125,7 +125,13 @@
             stroke-width="8"
             stroke-linecap="round"
           />
-          <path d="M82 72c0 18-10 34-22 48M138 72c0 18 10 34 22 48" fill="none" stroke="#f0b89d" stroke-width="8" stroke-linecap="round" />
+          <path
+            d="M82 72c0 18-10 34-22 48M138 72c0 18 10 34 22 48"
+            fill="none"
+            stroke="#f0b89d"
+            stroke-width="8"
+            stroke-linecap="round"
+          />
         </symbol>
 
         <symbol id="food-tamale" viewBox="0 0 180 260">
@@ -153,92 +159,106 @@
       </defs>
     </svg>
 
-    <main class="app" id="app">
-      <section class="scene" aria-live="polite">
-        <div class="flag-layer" aria-hidden="true">
-          <img class="flag-art" src="mexico-flag.svg" alt="" />
-          <span class="flag-wave flag-wave-a"></span>
-          <span class="flag-wave flag-wave-b"></span>
-          <span class="flag-shadow"></span>
-        </div>
+    <main class="game-shell" id="app">
+      <canvas class="game-canvas" id="gameCanvas" aria-label="3D birthday racing game"></canvas>
+      <div class="screen-vignette" aria-hidden="true"></div>
 
-        <div class="fireworks" aria-hidden="true">
-          <span class="rocket rocket-left rocket-a"></span>
-          <span class="rocket rocket-left rocket-b"></span>
-          <span class="rocket rocket-left rocket-c"></span>
-          <span class="rocket rocket-left rocket-d"></span>
-          <span class="rocket rocket-right rocket-a"></span>
-          <span class="rocket rocket-right rocket-b"></span>
-          <span class="rocket rocket-right rocket-c"></span>
-          <span class="rocket rocket-right rocket-d"></span>
+      <header class="hud">
+        <div class="hud-card">
+          <span class="hud-label">Track</span>
+          <strong class="hud-value">Birthday Eight</strong>
         </div>
+        <div class="hud-card">
+          <span class="hud-label">Next Gate</span>
+          <strong class="hud-value" id="checkpointValue">2 / 8</strong>
+        </div>
+        <div class="hud-card">
+          <span class="hud-label">Speed</span>
+          <strong class="hud-value" id="speedValue">0 mph</strong>
+        </div>
+        <div class="hud-card hud-card-wide">
+          <span class="hud-label">Status</span>
+          <strong class="hud-value" id="statusValue">Complete the figure eight to unlock the birthday splash.</strong>
+        </div>
+      </header>
 
-        <div class="feast" aria-hidden="true">
-          <div class="food food-left food-a">
+      <section class="race-prompt" id="racePrompt">
+        <p class="prompt-kicker">Over-The-Shoulder Birthday Racer</p>
+        <h1 class="prompt-title">Complete the figure-eight track, then trigger the chest explosion.</h1>
+        <p class="prompt-copy">
+          Left stick handles direction. Hold accelerate to launch, hold brake to slow down.
+        </p>
+      </section>
+
+      <div class="touch-controls" aria-label="Touch controls">
+        <section class="control-panel stick-panel">
+          <p class="control-title">Direction</p>
+          <div class="stick-pad" id="leftStick" aria-label="Direction stick">
+            <div class="stick-ring"></div>
+            <div class="stick-cross"></div>
+            <div class="stick-thumb" id="stickThumb"></div>
+          </div>
+          <p class="control-copy">Up for forward, down for reverse, left or right to steer.</p>
+        </section>
+
+        <section class="control-panel pedal-panel">
+          <p class="control-title">Drive</p>
+          <button class="pedal pedal-accel" id="accelerateButton" type="button">Accelerate</button>
+          <button class="pedal pedal-brake" id="brakeButton" type="button">Brake</button>
+        </section>
+      </div>
+
+      <section class="splash" id="splash" aria-hidden="true">
+        <div class="splash-backdrop"></div>
+        <div class="splash-shell">
+          <div class="splash-burst splash-burst-left"></div>
+          <div class="splash-burst splash-burst-right"></div>
+
+          <div class="splash-food splash-food-left splash-food-a">
             <svg class="food-svg" viewBox="0 0 260 170">
               <use href="#food-taco"></use>
             </svg>
           </div>
-          <div class="food food-left food-b">
-            <svg class="food-svg" viewBox="0 0 180 260">
-              <use href="#food-tamale"></use>
-            </svg>
-          </div>
-          <div class="food food-left food-c">
+          <div class="splash-food splash-food-left splash-food-b">
             <svg class="food-svg" viewBox="0 0 180 260">
               <use href="#food-elote"></use>
             </svg>
           </div>
-          <div class="food food-left food-d">
+          <div class="splash-food splash-food-left splash-food-c">
+            <svg class="food-svg" viewBox="0 0 180 260">
+              <use href="#food-tamale"></use>
+            </svg>
+          </div>
+          <div class="splash-food splash-food-right splash-food-a">
             <svg class="food-svg" viewBox="0 0 220 180">
               <use href="#food-concha"></use>
             </svg>
           </div>
-          <div class="food food-right food-a">
-            <svg class="food-svg" viewBox="0 0 220 180">
-              <use href="#food-concha"></use>
-            </svg>
-          </div>
-          <div class="food food-right food-b">
+          <div class="splash-food splash-food-right splash-food-b">
             <svg class="food-svg" viewBox="0 0 260 170">
               <use href="#food-taco"></use>
             </svg>
           </div>
-          <div class="food food-right food-c">
+          <div class="splash-food splash-food-right splash-food-c">
             <svg class="food-svg" viewBox="0 0 180 260">
               <use href="#food-elote"></use>
             </svg>
           </div>
-          <div class="food food-right food-d">
-            <svg class="food-svg" viewBox="0 0 180 260">
-              <use href="#food-tamale"></use>
-            </svg>
+
+          <div class="splash-coins" aria-hidden="true">
+            <span class="coin coin-1"></span>
+            <span class="coin coin-2"></span>
+            <span class="coin coin-3"></span>
+            <span class="coin coin-4"></span>
+            <span class="coin coin-5"></span>
+            <span class="coin coin-6"></span>
+            <span class="coin coin-7"></span>
+            <span class="coin coin-8"></span>
+            <span class="coin coin-9"></span>
+            <span class="coin coin-10"></span>
           </div>
-        </div>
 
-        <div class="coins" aria-hidden="true">
-          <span class="coin coin-1"></span>
-          <span class="coin coin-2"></span>
-          <span class="coin coin-3"></span>
-          <span class="coin coin-4"></span>
-          <span class="coin coin-5"></span>
-          <span class="coin coin-6"></span>
-          <span class="coin coin-7"></span>
-          <span class="coin coin-8"></span>
-          <span class="coin coin-9"></span>
-          <span class="coin coin-10"></span>
-          <span class="coin coin-11"></span>
-          <span class="coin coin-12"></span>
-        </div>
-
-        <div class="content">
-          <button
-            class="chest-button"
-            id="chestButton"
-            type="button"
-            aria-label="Open the treasure chest"
-            aria-pressed="false"
-          >
+          <div class="splash-chest">
             <svg class="chest-svg" viewBox="0 0 520 420" aria-hidden="true">
               <defs>
                 <linearGradient id="woodMain" x1="0%" y1="0%" x2="0%" y2="100%">
@@ -291,14 +311,15 @@
                 <rect class="lid-lock" x="230" y="164" width="60" height="32" rx="14" />
               </g>
             </svg>
-          </button>
+          </div>
 
-          <p class="hint" id="hint">click the chest</p>
-          <h1 class="message" id="message">happy birthday juan pablo</h1>
+          <p class="splash-kicker">Track Cleared</p>
+          <h2 class="splash-title">Happy Birthday Juan Pablo</h2>
+          <button class="restart-button" id="restartButton" type="button">Race Again</button>
         </div>
       </section>
     </main>
 
-    <script src="script.js"></script>
+    <script type="module" src="script.js"></script>
   </body>
 </html>
