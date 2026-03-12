@@ -11,7 +11,6 @@ const restartButton = document.getElementById("restartButton");
 const leftStick = document.getElementById("leftStick");
 const stickThumb = document.getElementById("stickThumb");
 const accelerateButton = document.getElementById("accelerateButton");
-const brakeButton = document.getElementById("brakeButton");
 
 const TRACK_SEGMENTS = 240;
 const ROAD_HALF_WIDTH = 8.2;
@@ -21,7 +20,6 @@ const MAX_FORWARD_SPEED = 40;
 const MAX_REVERSE_SPEED = -14;
 const FORWARD_ACCEL = 28;
 const REVERSE_ACCEL = 18;
-const BRAKE_FORCE = 38;
 const STEER_RATE = 2.15;
 
 const renderer = new THREE.WebGLRenderer({
@@ -54,7 +52,6 @@ const controls = {
   touchX: 0,
   touchY: 0,
   accelerate: false,
-  brake: false,
 };
 
 const keys = Object.create(null);
@@ -805,7 +802,6 @@ function createCar() {
 
 function bindControls() {
   bindHoldButton(accelerateButton, "accelerate");
-  bindHoldButton(brakeButton, "brake");
 
   let stickPointerId = null;
 
@@ -939,15 +935,7 @@ function updateCar(delta) {
       state.speed += direction * accel * driveAmount * delta;
     }
   } else {
-    state.speed = damp(state.speed, 0, input.brake ? 9.5 : 3.4, delta);
-  }
-
-  if (input.brake) {
-    if (Math.abs(state.speed) > 0.25) {
-      state.speed -= Math.sign(state.speed) * BRAKE_FORCE * delta;
-    } else {
-      state.speed = 0;
-    }
+    state.speed = damp(state.speed, 0, 5.4, delta);
   }
 
   state.speed = clamp(state.speed, MAX_REVERSE_SPEED, MAX_FORWARD_SPEED);
@@ -995,7 +983,6 @@ function getInputState() {
     stickX: clamp(controls.touchX + keyboardX, -1, 1),
     stickY: clamp(controls.touchY + keyboardY, -1, 1),
     accelerate: controls.accelerate || !!keys.ShiftLeft || !!keys.ShiftRight || !!keys.KeyJ,
-    brake: controls.brake || !!keys.Space || !!keys.KeyK,
   };
 }
 
@@ -1130,7 +1117,6 @@ function triggerWin() {
   state.won = true;
   state.speed = 0;
   controls.accelerate = false;
-  controls.brake = false;
   splash.classList.add("show");
   splash.setAttribute("aria-hidden", "false");
   app.classList.add("show-splash");
@@ -1157,12 +1143,10 @@ function resetRace() {
   controls.touchX = 0;
   controls.touchY = 0;
   controls.accelerate = false;
-  controls.brake = false;
 
   stickThumb.style.transform = "translate3d(0, 0, 0)";
   leftStick.classList.remove("is-active");
   accelerateButton.classList.remove("is-pressed");
-  brakeButton.classList.remove("is-pressed");
 
   splash.classList.remove("show");
   splash.setAttribute("aria-hidden", "true");

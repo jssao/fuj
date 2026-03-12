@@ -183,29 +183,20 @@
       </header>
 
       <section class="race-prompt" id="racePrompt">
-        <p class="prompt-kicker">Over-The-Shoulder Birthday Racer</p>
-        <h1 class="prompt-title">Complete the figure-eight track, then trigger the chest explosion.</h1>
-        <p class="prompt-copy">
-          Left stick handles direction. Hold accelerate to launch, hold brake to slow down.
-        </p>
+        <p class="prompt-copy">Complete the track and see what happens.</p>
       </section>
 
       <div class="touch-controls" aria-label="Touch controls">
-        <section class="control-panel stick-panel">
-          <p class="control-title">Direction</p>
-          <div class="stick-pad" id="leftStick" aria-label="Direction stick">
-            <div class="stick-ring"></div>
-            <div class="stick-cross"></div>
-            <div class="stick-thumb" id="stickThumb"></div>
-          </div>
-          <p class="control-copy">Up for forward, down for reverse, left or right to steer.</p>
-        </section>
+        <div class="stick-pad" id="leftStick" aria-label="Direction stick">
+          <div class="stick-ring"></div>
+          <span class="stick-arrow arrow-up" aria-hidden="true">↑</span>
+          <span class="stick-arrow arrow-right" aria-hidden="true">→</span>
+          <span class="stick-arrow arrow-down" aria-hidden="true">↓</span>
+          <span class="stick-arrow arrow-left" aria-hidden="true">←</span>
+          <div class="stick-thumb" id="stickThumb"></div>
+        </div>
 
-        <section class="control-panel pedal-panel">
-          <p class="control-title">Drive</p>
-          <button class="pedal pedal-accel" id="accelerateButton" type="button">Accelerate</button>
-          <button class="pedal pedal-brake" id="brakeButton" type="button">Brake</button>
-        </section>
+        <button class="pedal pedal-accel" id="accelerateButton" type="button">Accelerate</button>
       </div>
 
       <section class="splash" id="splash" aria-hidden="true">
