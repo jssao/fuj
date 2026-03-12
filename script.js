@@ -139,22 +139,35 @@ function buildScene() {
   const shoulderMesh = new THREE.Mesh(
     createRibbonGeometry(trackCurve, TRACK_SEGMENTS, ROAD_HALF_WIDTH + 2.2, 0.04),
     new THREE.MeshStandardMaterial({
-      color: 0x171b20,
-      roughness: 0.96,
+      color: 0x7b613f,
+      roughness: 0.98,
       metalness: 0.02,
     })
   );
   scene.add(shoulderMesh);
 
+  const roadOutline = new THREE.Mesh(
+    createRibbonGeometry(trackCurve, TRACK_SEGMENTS, ROAD_HALF_WIDTH + 0.85, 0.055),
+    new THREE.MeshStandardMaterial({
+      color: 0x12161b,
+      roughness: 0.96,
+      metalness: 0.03,
+    })
+  );
+  scene.add(roadOutline);
+
   const roadMesh = new THREE.Mesh(
     createRibbonGeometry(trackCurve, TRACK_SEGMENTS, ROAD_HALF_WIDTH, 0.08),
     new THREE.MeshStandardMaterial({
-      color: 0x262d36,
-      roughness: 0.86,
+      color: 0x21272f,
+      roughness: 0.8,
       metalness: 0.04,
     })
   );
   scene.add(roadMesh);
+
+  const edgeLines = createEdgeLines();
+  scene.add(edgeLines);
 
   const laneMarks = createLaneMarks();
   scene.add(laneMarks);
@@ -284,7 +297,7 @@ function createLaneMarks() {
 
 function createCurbs() {
   const group = new THREE.Group();
-  const curbGeometry = new THREE.BoxGeometry(2.5, 0.24, 0.84);
+  const curbGeometry = new THREE.BoxGeometry(2.8, 0.28, 0.96);
   const curbMaterials = [
     new THREE.MeshStandardMaterial({ color: 0x006847, roughness: 0.78 }),
     new THREE.MeshStandardMaterial({ color: 0xf5efe4, roughness: 0.72 }),
@@ -305,6 +318,67 @@ function createCurbs() {
     }
   }
 
+  return group;
+}
+
+function createOffsetRibbonGeometry(curve, segments, offset, halfWidth, yOffset) {
+  const positions = [];
+  const normals = [];
+  const uvs = [];
+  const indices = [];
+
+  for (let index = 0; index <= segments; index += 1) {
+    const u = index / segments;
+    const point = curve.getPointAt(u);
+    const tangent = curve.getTangentAt(u).setY(0).normalize();
+    const side = new THREE.Vector3(-tangent.z, 0, tangent.x).normalize();
+    const center = point.clone().addScaledVector(side, offset);
+    const left = center.clone().addScaledVector(side, halfWidth);
+    const right = center.clone().addScaledVector(side, -halfWidth);
+
+    left.y = yOffset;
+    right.y = yOffset;
+
+    positions.push(left.x, left.y, left.z, right.x, right.y, right.z);
+    normals.push(0, 1, 0, 0, 1, 0);
+    uvs.push(0, u * 16, 1, u * 16);
+
+    if (index < segments) {
+      const base = index * 2;
+      indices.push(base, base + 1, base + 2, base + 1, base + 3, base + 2);
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute("normal", new THREE.Float32BufferAttribute(normals, 3));
+  geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
+  geometry.computeBoundingSphere();
+
+  return geometry;
+}
+
+function createEdgeLines() {
+  const group = new THREE.Group();
+  const edgeMaterial = new THREE.MeshStandardMaterial({
+    color: 0xf6f0e0,
+    emissive: 0x5a4c2c,
+    emissiveIntensity: 0.08,
+    roughness: 0.42,
+    metalness: 0.04,
+  });
+
+  const leftLine = new THREE.Mesh(
+    createOffsetRibbonGeometry(trackCurve, TRACK_SEGMENTS, ROAD_HALF_WIDTH - 0.48, 0.14, 0.125),
+    edgeMaterial
+  );
+  const rightLine = new THREE.Mesh(
+    createOffsetRibbonGeometry(trackCurve, TRACK_SEGMENTS, -(ROAD_HALF_WIDTH - 0.48), 0.14, 0.125),
+    edgeMaterial
+  );
+
+  group.add(leftLine, rightLine);
   return group;
 }
 
@@ -517,36 +591,49 @@ function createCheckpointMarker(checkpoint) {
 
 function createCar() {
   const car = new THREE.Group();
-  const bodyMaterial = new THREE.MeshStandardMaterial({
-    color: 0xf4efe4,
-    roughness: 0.45,
-    metalness: 0.22,
-  });
-  const greenMaterial = new THREE.MeshStandardMaterial({
-    color: 0x007d5a,
-    roughness: 0.45,
-    metalness: 0.18,
-  });
-  const redMaterial = new THREE.MeshStandardMaterial({
-    color: 0xd13d2a,
-    roughness: 0.45,
-    metalness: 0.18,
+  const shellMaterial = new THREE.MeshStandardMaterial({
+    color: 0xdfaa58,
+    roughness: 0.68,
+    metalness: 0.06,
   });
   const darkMaterial = new THREE.MeshStandardMaterial({
     color: 0x171b1f,
     roughness: 0.82,
     metalness: 0.06,
   });
-  const glassMaterial = new THREE.MeshStandardMaterial({
-    color: 0x87b8d8,
-    roughness: 0.18,
-    metalness: 0.12,
-    transparent: true,
-    opacity: 0.84,
+  const shellToastMaterial = new THREE.MeshStandardMaterial({
+    color: 0xb26f2d,
+    roughness: 0.74,
+    metalness: 0.04,
+  });
+  const meatMaterial = new THREE.MeshStandardMaterial({
+    color: 0x744128,
+    roughness: 0.9,
+    metalness: 0.02,
+  });
+  const lettuceMaterial = new THREE.MeshStandardMaterial({
+    color: 0x4d9a45,
+    roughness: 0.88,
+    metalness: 0.02,
+  });
+  const tomatoMaterial = new THREE.MeshStandardMaterial({
+    color: 0xcc4432,
+    roughness: 0.84,
+    metalness: 0.02,
+  });
+  const cheeseMaterial = new THREE.MeshStandardMaterial({
+    color: 0xf2d36a,
+    roughness: 0.74,
+    metalness: 0.02,
+  });
+  const creamMaterial = new THREE.MeshStandardMaterial({
+    color: 0xf7f1df,
+    roughness: 0.52,
+    metalness: 0.06,
   });
 
   const shadow = new THREE.Mesh(
-    new THREE.CircleGeometry(2.5, 24),
+    new THREE.CircleGeometry(3, 28),
     new THREE.MeshBasicMaterial({
       color: 0x000000,
       transparent: true,
@@ -555,46 +642,141 @@ function createCar() {
   );
   shadow.rotation.x = -Math.PI / 2;
   shadow.position.y = 0.04;
-  shadow.scale.set(1.1, 0.8, 1);
+  shadow.scale.set(1.3, 0.82, 1);
   car.add(shadow);
 
-  const body = new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.92, 5.2), bodyMaterial);
-  body.position.y = 1.06;
-  body.castShadow = false;
-  car.add(body);
+  const shellShape = new THREE.Shape();
+  shellShape.moveTo(-1.75, 0);
+  shellShape.quadraticCurveTo(-0.4, 2.2, 0, 2.34);
+  shellShape.quadraticCurveTo(0.4, 2.2, 1.75, 0);
+  shellShape.lineTo(1.06, 0.18);
+  shellShape.quadraticCurveTo(0.24, 1.24, 0, 1.42);
+  shellShape.quadraticCurveTo(-0.24, 1.24, -1.06, 0.18);
+  shellShape.closePath();
 
-  const splitter = new THREE.Mesh(new THREE.BoxGeometry(2.9, 0.18, 5.45), darkMaterial);
-  splitter.position.y = 0.58;
-  car.add(splitter);
+  const shellGeometry = new THREE.ExtrudeGeometry(shellShape, {
+    depth: 5.6,
+    bevelEnabled: false,
+    curveSegments: 24,
+  });
+  shellGeometry.center();
 
-  const nose = new THREE.Mesh(new THREE.BoxGeometry(2.22, 0.36, 1.16), redMaterial);
-  nose.position.set(0, 0.9, 2.22);
-  car.add(nose);
+  const shell = new THREE.Mesh(shellGeometry, shellMaterial);
+  shell.position.y = 0.76;
+  car.add(shell);
 
-  const tail = new THREE.Mesh(new THREE.BoxGeometry(2.22, 0.36, 1.16), greenMaterial);
-  tail.position.set(0, 0.9, -2.22);
-  car.add(tail);
+  const toastStripe = new THREE.Mesh(
+    new THREE.BoxGeometry(0.2, 0.3, 5.3),
+    shellToastMaterial
+  );
+  toastStripe.position.set(1.52, 0.88, 0);
+  car.add(toastStripe);
 
-  const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.88, 2.2), glassMaterial);
-  cabin.position.set(0, 1.72, -0.2);
-  car.add(cabin);
+  const toastStripeOpposite = toastStripe.clone();
+  toastStripeOpposite.position.x = -1.52;
+  car.add(toastStripeOpposite);
 
-  const roofStripe = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.05, 4.6), darkMaterial);
-  roofStripe.position.set(0, 1.56, 0.1);
-  car.add(roofStripe);
+  const basePlate = new THREE.Mesh(new THREE.BoxGeometry(2.34, 0.22, 5.35), darkMaterial);
+  basePlate.position.y = 0.5;
+  car.add(basePlate);
 
-  const spoiler = new THREE.Mesh(new THREE.BoxGeometry(2.16, 0.14, 0.6), redMaterial);
-  spoiler.position.set(0, 1.32, -2.58);
-  car.add(spoiler);
+  const meatCluster = new THREE.Group();
+  const meatGeometry = new THREE.SphereGeometry(0.34, 12, 12);
+
+  for (const [x, y, z, sx, sy, sz] of [
+    [-0.48, 1.42, -2.05, 1.3, 0.78, 1.1],
+    [0.42, 1.38, -1.2, 1.2, 0.72, 1],
+    [-0.38, 1.36, -0.2, 1.35, 0.74, 1.05],
+    [0.46, 1.4, 0.74, 1.24, 0.7, 1],
+    [-0.42, 1.38, 1.66, 1.28, 0.74, 1.06],
+    [0.3, 1.35, 2.34, 1.08, 0.68, 0.9],
+  ]) {
+    const lump = new THREE.Mesh(meatGeometry, meatMaterial);
+    lump.position.set(x, y, z);
+    lump.scale.set(sx, sy, sz);
+    meatCluster.add(lump);
+  }
+
+  car.add(meatCluster);
+
+  const lettuceGeometry = new THREE.SphereGeometry(0.22, 10, 10);
+
+  for (const [x, y, z, scale] of [
+    [-0.68, 1.78, -2.1, 1.1],
+    [0.08, 1.74, -1.46, 1],
+    [0.62, 1.76, -0.72, 1.05],
+    [-0.2, 1.8, -0.08, 0.95],
+    [-0.62, 1.75, 0.88, 1],
+    [0.28, 1.8, 1.54, 1.08],
+    [0.72, 1.74, 2.16, 1],
+  ]) {
+    const leaf = new THREE.Mesh(lettuceGeometry, lettuceMaterial);
+    leaf.position.set(x, y, z);
+    leaf.scale.setScalar(scale);
+    car.add(leaf);
+  }
+
+  const cheeseGeometry = new THREE.BoxGeometry(0.12, 0.12, 0.86);
+
+  for (const [x, y, z, rot] of [
+    [-0.16, 1.7, -1.86, 0.42],
+    [0.26, 1.66, -0.96, -0.2],
+    [-0.18, 1.68, 0.18, 0.34],
+    [0.18, 1.69, 1.12, -0.36],
+    [-0.08, 1.71, 2.02, 0.18],
+  ]) {
+    const strip = new THREE.Mesh(cheeseGeometry, cheeseMaterial);
+    strip.position.set(x, y, z);
+    strip.rotation.x = rot;
+    car.add(strip);
+  }
+
+  const tomatoGeometry = new THREE.BoxGeometry(0.22, 0.2, 0.22);
+
+  for (const [x, y, z] of [
+    [0.52, 1.58, -1.88],
+    [-0.44, 1.55, -0.86],
+    [0.48, 1.58, 0.42],
+    [-0.38, 1.56, 1.5],
+  ]) {
+    const tomato = new THREE.Mesh(tomatoGeometry, tomatoMaterial);
+    tomato.position.set(x, y, z);
+    tomato.rotation.set(0.2, 0.28, 0.1);
+    car.add(tomato);
+  }
+
+  const headlightGeometry = new THREE.SphereGeometry(0.12, 10, 10);
+  const leftHeadlight = new THREE.Mesh(headlightGeometry, creamMaterial);
+  leftHeadlight.position.set(-0.58, 0.88, 2.74);
+  car.add(leftHeadlight);
+
+  const rightHeadlight = leftHeadlight.clone();
+  rightHeadlight.position.x = 0.58;
+  car.add(rightHeadlight);
+
+  const taillightMaterial = new THREE.MeshStandardMaterial({
+    color: 0xca3d2b,
+    emissive: 0x50130c,
+    emissiveIntensity: 0.14,
+    roughness: 0.42,
+    metalness: 0.08,
+  });
+  const leftTaillight = new THREE.Mesh(headlightGeometry, taillightMaterial);
+  leftTaillight.position.set(-0.52, 0.86, -2.76);
+  car.add(leftTaillight);
+
+  const rightTaillight = leftTaillight.clone();
+  rightTaillight.position.x = 0.52;
+  car.add(rightTaillight);
 
   const wheelGeometry = new THREE.CylinderGeometry(0.54, 0.54, 0.62, 18);
   wheelGeometry.rotateZ(Math.PI / 2);
 
   const wheelOffsets = [
-    [-1.35, 0.58, 1.62, true],
-    [1.35, 0.58, 1.62, true],
-    [-1.35, 0.58, -1.62, false],
-    [1.35, 0.58, -1.62, false],
+    [-1.54, 0.56, 1.7, true],
+    [1.54, 0.56, 1.7, true],
+    [-1.54, 0.56, -1.7, false],
+    [1.54, 0.56, -1.7, false],
   ];
 
   const wheels = [];
