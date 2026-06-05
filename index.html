@@ -379,16 +379,16 @@
       .special-bar {
         position: relative;
         width: clamp(94px, 25vw, 124px);
-        height: min(174px, 25svh);
+        height: min(158px, 24svh);
         display: none;
         overflow-x: hidden;
         overflow-y: auto;
         scrollbar-width: none;
-        padding: 112px 0 0;
+        padding: 52px 0 8px;
         border: 0;
-        border-radius: 22px 22px 999px 999px;
+        border-radius: 18px;
         background:
-          linear-gradient(180deg, rgba(8, 5, 4, 0), rgba(8, 5, 4, 0.44) 26%, rgba(8, 5, 4, 0.72) 58%),
+          linear-gradient(180deg, rgba(8, 5, 4, 0), rgba(8, 5, 4, 0.42) 28%, rgba(8, 5, 4, 0.76) 64%),
           radial-gradient(circle at 34% 78%, rgba(255, 246, 232, 0.18), transparent 26%),
           linear-gradient(145deg, rgba(90, 22, 16, 0.86), rgba(8, 5, 4, 0.84));
         box-shadow:
@@ -400,6 +400,7 @@
         -webkit-mask-image: linear-gradient(180deg, transparent 0%, black 25%, black 100%);
         -webkit-overflow-scrolling: touch;
         overscroll-behavior: contain;
+        scroll-padding: 52px 0 8px;
         scroll-snap-type: y proximity;
         touch-action: pan-y;
       }
@@ -415,8 +416,9 @@
       .special-chip {
         display: grid;
         place-items: center;
-        height: 58px;
+        height: 50px;
         width: 100%;
+        margin-bottom: 6px;
         padding: 0 9px;
         border: 1px solid transparent;
         border-radius: 999px;
@@ -740,8 +742,8 @@
 
         .special-bar {
           width: 108px;
-          height: min(164px, 24svh);
-          padding-top: 106px;
+          height: min(146px, 23svh);
+          padding-top: 48px;
         }
       }
     </style>
@@ -1024,6 +1026,9 @@
         chargeRatio: 0,
         maxChargeBuff: false,
         chargeSpeedBuff: 0,
+        speedBoost: 0,
+        kidHunt: 0,
+        kidHuntDamage: 0,
         autoDeflect: 0,
         invincible: 0,
         godMode: 0,
@@ -1087,18 +1092,25 @@
         { threshold: 5, id: "kid-slow", label: "Kid Slow", effect: "slow", radius: 4.6, damage: 0.2 },
         { threshold: 10, id: "kid-stun", label: "Kid Stun", effect: "stun", radius: 4.8, damage: 0.4 },
         { threshold: 15, id: "spark-sweep", label: "Spark", effect: "buffHit", radius: 0, damage: 0 },
+        { threshold: 20, id: "sprint-orb", label: "Sprint", effect: "speed", radius: 0, damage: 0 },
         { threshold: 25, id: "chain-anchor", label: "Anchor", effect: "sweep", radius: 6.6, damage: 4.5 },
         { threshold: 40, id: "deflect-aura", label: "Deflect", effect: "deflect", radius: 0, damage: 0 },
         { threshold: 50, id: "family-rune", label: "Rune", effect: "blast", radius: 6.2, damage: 5.5 },
         { threshold: 75, id: "carnage-mode", label: "Carnage", effect: "carnage", radius: 0, damage: 0 },
         { threshold: 100, id: "santiago-wrath", label: "Wrath", effect: "clear", radius: 20, damage: 99 },
+        { threshold: 125, id: "kid-raid", label: "Kid Raid", effect: "kidHunt", radius: 8.2, damage: 7 },
         { threshold: 150, id: "spectral-rush", label: "Rush", effect: "sweep", radius: 9, damage: 8 },
+        { threshold: 175, id: "sky-split", label: "Sky Split", effect: "rift", radius: 9, damage: 9 },
         { threshold: 200, id: "champagne-fire", label: "Toast", effect: "champagne", radius: 8.2, damage: 8 },
         { threshold: 250, id: "glasses-flash", label: "Glasses", effect: "deflect", radius: 0, damage: 0 },
+        { threshold: 300, id: "twin-execute", label: "Twin Hunt", effect: "kidHunt", radius: 11, damage: 999 },
         { threshold: 350, id: "root-trap", label: "Roots", effect: "root", radius: 8, damage: 2 },
+        { threshold: 425, id: "titan-step", label: "Titan Step", effect: "titan", radius: 11, damage: 16 },
         { threshold: 500, id: "chain-net", label: "Net", effect: "net", radius: 9.5, damage: 10 },
+        { threshold: 600, id: "solar-rush", label: "Solar Rush", effect: "speed", radius: 0, damage: 0 },
         { threshold: 650, id: "mini-god", label: "Barrage", effect: "barrage", radius: 8.5, damage: 12 },
         { threshold: 750, id: "heart-shock", label: "Heart", effect: "shock", radius: 12, damage: 14 },
+        { threshold: 850, id: "meteor-chain", label: "Meteor", effect: "meteor", radius: 13, damage: 22 },
         { threshold: 900, id: "climb-frenzy", label: "Frenzy", effect: "frenzy", radius: 0, damage: 0 },
         { threshold: 1000, id: "god-dad", label: "God Dad", effect: "god", radius: 0, damage: 0 },
       ];
@@ -1370,6 +1382,8 @@
           shakeWarning: round(game.shakeWarning, 3),
           charge: round(game.chargeRatio, 3),
           charging: game.charging,
+          speedBoost: round(game.speedBoost, 3),
+          kidHunt: round(game.kidHunt, 3),
           specials: game.specials.map((special) => special.label),
           player: player
             ? {
@@ -1400,7 +1414,7 @@
 
       function exportGameplayLogObject() {
         return {
-          version: "2026-06-05a",
+          version: "2026-06-05b",
           exportedAt: new Date().toISOString(),
           userAgent: navigator.userAgent,
           viewport: { width: window.innerWidth, height: window.innerHeight, dpr: window.devicePixelRatio },
@@ -1433,6 +1447,8 @@
         if (game.invincible > 0) game.invincible -= dt;
         if (game.godMode > 0) game.godMode -= dt;
         if (game.chargeSpeedBuff > 0) game.chargeSpeedBuff -= dt;
+        if (game.speedBoost > 0) game.speedBoost -= dt;
+        if (game.kidHunt > 0) game.kidHunt -= dt;
 
         if (game.state === "wave") {
           const now = performance.now() / 1000;
@@ -1460,9 +1476,6 @@
           game.chargeRatio = THREE.MathUtils.lerp(game.chargeRatio, 0, Math.min(1, dt * 7));
         }
 
-        if (game.state === "wave" && performance.now() / 1000 - game.lastDamageTime > 3.4) {
-          game.health = Math.min(MAX_HEALTH, game.health + dt * 4.8);
-        }
       }
 
       function queueShake() {
@@ -1509,8 +1522,9 @@
         const contactSlow = player.slow > 0 ? 0.44 : 1;
         const chargeSlow = game.charging ? 0.68 : 1;
         const god = game.godMode > 0 ? 1.35 : 1;
+        const sprint = game.speedBoost > 0 ? 1.38 : 1;
         const travelSpeed = game.state === "clear" ? 4.2 : game.state === "victory" ? 3.55 : 3.15;
-        const speed = travelSpeed * contactSlow * chargeSlow * god;
+        const speed = travelSpeed * contactSlow * chargeSlow * god * sprint;
 
         if (move.lengthSq() > 0.002 && canMove) {
           player.pos.addScaledVector(move, speed * dt);
@@ -1557,28 +1571,35 @@
       }
 
       function updateKids(dt) {
-        for (const kid of kids) {
+        for (const [index, kid] of kids.entries()) {
           const target = samplePath(kid.delay);
+          const hunting = game.kidHunt > 0 && game.state === "wave";
+          const huntTarget = hunting ? nearestEnemy(kid.pos, 9.5) || nearestEnemy(player.pos, 12) : null;
           const safeBack = game.enemies.some((enemy) => enemy.pos.distanceTo(player.pos) < 2.1);
-          const offsetScale = safeBack ? -0.18 : -0.78;
+          const offsetScale = safeBack ? -1.62 : -1.08;
           const back = player.facing.clone().multiplyScalar(offsetScale);
           const side = new THREE.Vector2(-player.facing.y, player.facing.x).multiplyScalar(
-            kid.name === "Santiago" ? -0.92 : 0.92,
+            kid.name === "Santiago" ? -1.24 : 1.24,
           );
-          const forwardPeek = safeBack ? player.facing.clone().multiplyScalar(0.42) : new THREE.Vector2();
           const base = safeBack ? player.pos.clone() : new THREE.Vector2(target.x, target.y);
-          const goal = base.add(back).add(side).add(forwardPeek);
-          kid.pos.lerp(goal, Math.min(1, dt * 5.2));
-          kid.group.position.set(kid.pos.x, kid.pos.y, 0.58);
-          kid.group.rotation.z = facingToRotation(player.facing);
+          const goal = huntTarget
+            ? huntTarget.pos
+                .clone()
+                .add(new THREE.Vector2(-player.facing.y, player.facing.x).multiplyScalar(index === 0 ? -0.38 : 0.38))
+            : base.add(back).add(side);
+          kid.pos.lerp(goal, Math.min(1, dt * (huntTarget ? 8.5 : 5.2)));
+          kid.group.position.set(kid.pos.x, kid.pos.y, 0.74);
+          const kidFacing = huntTarget ? huntTarget.pos.clone().sub(kid.pos).normalize() : player.facing;
+          kid.group.rotation.z = facingToRotation(kidFacing);
 
           kid.attackTimer -= dt;
           if (kid.attackTimer <= 0 && game.state === "wave") {
-            kid.attackTimer = 1.05 + Math.random() * 0.7;
-            const enemy = nearestEnemy(kid.pos, 5.2);
+            kid.attackTimer = hunting ? 0.42 + Math.random() * 0.18 : 1.05 + Math.random() * 0.7;
+            const enemy = huntTarget || nearestEnemy(kid.pos, 5.2);
             if (enemy) {
-              enemy.slowed = Math.max(enemy.slowed, 1.25);
+              enemy.slowed = Math.max(enemy.slowed, hunting ? 1.8 : 1.25);
               createKidImpact(kid.pos, enemy.pos, kid.name === "Santiago" ? 0xffd24c : 0x65d5ff);
+              if (hunting) damageEnemy(enemy, game.kidHuntDamage || 6, enemy.pos.clone().sub(kid.pos));
             }
           }
         }
@@ -1626,11 +1647,12 @@
           const root = enemy.rooted > 0 ? 0.05 : 1;
           const speed = enemy.speed * slow * root;
 
-          if (enemy.type === "ranged" && distance < 5.7) {
+          if ((enemy.type === "ranged" || enemy.type === "wisp" || enemy.type === "spitter") && distance < 5.7) {
             enemy.pos.addScaledVector(dir, -speed * dt * 0.32);
             enemy.cooldown -= dt;
             if (enemy.cooldown <= 0) {
-              enemy.cooldown = 2.4 + Math.random() * 1.1;
+              enemy.cooldown =
+                enemy.type === "wisp" ? 1.7 + Math.random() * 0.8 : 2.4 + Math.random() * 1.1;
               spawnProjectile(enemy);
             }
           } else {
@@ -1796,7 +1818,10 @@
 
       function performAttack(charge) {
         const radius = BASE_ATTACK_RADIUS * (1 + charge) * (game.godMode > 0 ? 1.45 : 1);
-        const damage = BASE_ATTACK_DAMAGE * (1 + charge * 1.2) * (game.godMode > 0 ? 2.2 : 1);
+        const maxCharged = charge >= 0.98;
+        const damage = maxCharged
+          ? 999
+          : BASE_ATTACK_DAMAGE * (1 + charge * 1.2) * (game.godMode > 0 ? 2.2 : 1);
         const facing = player.facing.clone().normalize();
         const origin = player.pos.clone();
         createAttackArc(origin, facing, radius, charge);
@@ -1842,6 +1867,7 @@
 
         logEvent("attack", {
           charge: round(charge, 3),
+          maxCharged,
           radius: round(radius, 2),
           damage: round(damage, 2),
           facing: { x: round(facing.x, 2), y: round(facing.y, 2) },
@@ -1920,7 +1946,6 @@
         game.spawned = 0;
         game.waveTotal = Math.ceil(3 * Math.pow(1.5, wave - 1));
         game.spawnTimer = 0.15;
-        game.health = Math.min(MAX_HEALTH, game.health + 36);
         game.shakeTimer = 6 + Math.random() * 6;
         game.shake = 0;
         game.shakeWarning = 0;
@@ -1959,7 +1984,6 @@
       function clearWave() {
         game.state = "clear";
         if (game.shake > 0 || game.shakeWarning > 0) endShake("wave-clear");
-        game.health = Math.min(MAX_HEALTH, game.health + 55);
         game.bestWave = Math.max(game.bestWave, game.wave);
         updateBestStorage();
         logEvent("wave-clear", { wave: game.wave, waveKills: game.waveKills });
@@ -2035,6 +2059,9 @@
         game.stage100Seen = false;
         game.maxChargeBuff = false;
         game.chargeSpeedBuff = 0;
+        game.speedBoost = 0;
+        game.kidHunt = 0;
+        game.kidHuntDamage = 0;
         game.autoDeflect = 0;
         game.invincible = 0;
         game.godMode = 0;
@@ -2092,14 +2119,20 @@
         if (game.wave >= 3) options.push("crawler");
         if (game.wave >= 4) options.push("hugger");
         if (game.wave >= 6) options.push("ranged");
+        if (game.wave >= 7) options.push("stalker");
         if (game.wave >= 8) options.push("brute");
+        if (game.wave >= 9) options.push("wisp");
         if (game.wave >= 12) options.push("shield");
+        if (game.wave >= 13) options.push("spitter");
         const weights = options.map((type) => {
-          if (type === "basic") return 6;
+          if (type === "basic") return Math.max(1.4, 6 - game.wave * 0.34);
           if (type === "crawler") return 2.4;
           if (type === "hugger") return 1.6;
           if (type === "ranged") return 1.5;
+          if (type === "stalker") return 1.55;
           if (type === "brute") return 1.1;
+          if (type === "wisp") return 1.35;
+          if (type === "spitter") return 1.2;
           return 1;
         });
         let total = weights.reduce((sum, value) => sum + value, 0);
@@ -2125,9 +2158,13 @@
 
       function spawnProjectile(enemy) {
         const mesh = new THREE.Mesh(new THREE.OctahedronGeometry(0.18, 0), mats.rune.clone());
-        mesh.material.color.set(0x98e8ff);
+        mesh.material.color.set(
+          enemy.type === "spitter" ? 0x6fef8a : enemy.type === "wisp" ? 0xfff6e8 : 0x98e8ff,
+        );
         const pos = enemy.pos.clone();
-        const vel = player.pos.clone().sub(pos).normalize().multiplyScalar(4.1 + game.wave * 0.02);
+        const projectileSpeed =
+          enemy.type === "wisp" ? 5.2 + game.wave * 0.035 : enemy.type === "spitter" ? 3.6 : 4.1 + game.wave * 0.02;
+        const vel = player.pos.clone().sub(pos).normalize().multiplyScalar(projectileSpeed);
         groups.effects.add(mesh);
         game.projectiles.push({
           mesh,
@@ -2159,13 +2196,25 @@
         game.projectiles.splice(index, 1);
       }
 
+      function choosePickupType() {
+        const roll = Math.random();
+        const lowHealth = game.health < 42;
+        if (lowHealth && roll < 0.48) return "heal";
+        if (roll < 0.24) return "heal";
+        if (roll < 0.43) return "rune";
+        if (roll < 0.6) return "charge";
+        if (roll < 0.76) return "speed";
+        if (roll < 0.9) return "chain";
+        return "lightning";
+      }
+
       function spawnPickup(pos, forcedType = null) {
-        const types = ["heal", "rune", "charge", "chain", "lightning"];
-        const type = forcedType || types[Math.floor(Math.random() * types.length)];
+        const type = forcedType || choosePickupType();
         const color = {
           heal: 0xd71f2a,
           rune: 0xf8bf48,
           charge: 0x65d5ff,
+          speed: 0x6fef8a,
           chain: 0xd4c1a1,
           lightning: 0xaeeeff,
           cup: 0xfff0d0,
@@ -2188,8 +2237,11 @@
       }
 
       function spawnFixedPickups() {
-        if (Math.random() < 0.42 || game.wave <= 2) {
+        if (Math.random() < 0.54 || game.wave <= 2) {
           spawnPickup(new THREE.Vector2(rand(-4.5, 4.5), game.stageCenter + rand(-1, 3)), "heal");
+        }
+        if (game.wave >= 4 && game.wave % 3 === 1) {
+          spawnPickup(new THREE.Vector2(rand(-4.8, 4.8), game.stageCenter + rand(-2.5, 2.5)), "speed");
         }
         if (game.wave % 5 === 0) {
           spawnPickup(new THREE.Vector2(rand(-4.8, 4.8), game.stageCenter + 1.4), "rune");
@@ -2215,6 +2267,10 @@
         } else if (pickup.type === "charge") {
           game.chargeSpeedBuff = 9;
           showToast("Blue shard: faster charge.");
+        } else if (pickup.type === "speed") {
+          game.speedBoost = Math.max(game.speedBoost, 8);
+          createSpeedBurst(pickup.pos);
+          showToast("Green shard: Santiago moves faster.");
         } else if (pickup.type === "chain") {
           game.maxChargeBuff = true;
           showToast("Chain relic: next swing maxed.");
@@ -2272,10 +2328,10 @@
         game.specials.push(special);
         game.selectedSpecial = game.specials.length - 1;
         logEvent("special-add", { label: special.label, effect: special.effect, threshold: special.threshold || null });
-        renderSpecialBar();
+        renderSpecialBar({ instant: true });
       }
 
-      function renderSpecialBar() {
+      function renderSpecialBar({ instant = false } = {}) {
         specialBar.innerHTML = "";
         specialBar.classList.toggle("visible", game.specials.length > 0);
         specialBar.classList.toggle("cast-ready", game.specials.length > 0);
@@ -2286,6 +2342,10 @@
             ? game.specials[game.selectedSpecial]?.label || "Skill"
             : "Skill";
         }
+        if (!game.specials.length) {
+          specialBar.scrollTop = 0;
+          return;
+        }
         game.specials.forEach((special, index) => {
           const button = document.createElement("button");
           button.className = `special-chip${index === game.selectedSpecial ? " selected" : ""}`;
@@ -2293,12 +2353,19 @@
           button.textContent = special.label;
           specialBar.appendChild(button);
         });
+        syncSpecialBarScroll(instant);
+      }
+
+      function syncSpecialBarScroll(instant = false) {
         const selected = specialBar.querySelector(".special-chip.selected");
-        if (selected) {
-          requestAnimationFrame(() => {
-            selected.scrollIntoView({ block: "end", inline: "nearest", behavior: "smooth" });
-          });
-        }
+        if (!selected) return;
+        requestAnimationFrame(() => {
+          const targetTop = Math.max(
+            0,
+            selected.offsetTop - (specialBar.clientHeight - selected.offsetHeight - 8),
+          );
+          specialBar.scrollTo({ top: targetTop, behavior: instant ? "auto" : "smooth" });
+        });
       }
 
       function selectNearestSpecialFromScroll() {
@@ -2306,7 +2373,7 @@
         const chips = [...specialBar.querySelectorAll(".special-chip")];
         if (!chips.length) return;
         const barRect = specialBar.getBoundingClientRect();
-        const loadedSlotCenter = barRect.bottom - 29;
+        const loadedSlotCenter = barRect.bottom - 33;
         let bestIndex = game.selectedSpecial;
         let bestDistance = Infinity;
         chips.forEach((chip, index) => {
@@ -2320,7 +2387,7 @@
         });
         if (bestIndex !== game.selectedSpecial) {
           game.selectedSpecial = bestIndex;
-          renderSpecialBar();
+          renderSpecialBar({ instant: true });
         }
       }
 
@@ -2330,7 +2397,7 @@
         game.selectedSpecial = Math.max(0, Math.min(game.selectedSpecial, game.specials.length - 1));
         logEvent("special-cast", { label: special.label, effect: special.effect });
         executeSpecial(special);
-        renderSpecialBar();
+        renderSpecialBar({ instant: true });
       }
 
       function executeSpecial(special) {
@@ -2360,6 +2427,10 @@
           game.maxChargeBuff = true;
           game.chargeSpeedBuff = 6;
           createChainSweep(pos, player.facing, 4.5, 0xf8bf48);
+        } else if (special.effect === "speed") {
+          game.speedBoost = Math.max(game.speedBoost, special.threshold >= 600 ? 14 : 9);
+          game.chargeSpeedBuff = Math.max(game.chargeSpeedBuff, 5);
+          createSpeedBurst(pos);
         } else if (special.effect === "deflect") {
           game.autoDeflect = 8;
           createGlassesFlash();
@@ -2383,6 +2454,13 @@
             }
           }
           createRootLines(pos, radius);
+        } else if (special.effect === "kidHunt") {
+          game.kidHunt = Math.max(game.kidHunt, damage >= 999 ? 12 : 8);
+          game.kidHuntDamage = Math.max(game.kidHuntDamage, damage);
+          createKidPulse(pos, 0xf8bf48, radius);
+          for (const enemy of game.enemies) {
+            if (enemy.pos.distanceTo(pos) < radius * 0.7) enemy.slowed = Math.max(enemy.slowed, 1.8);
+          }
         } else if (special.effect === "net") {
           for (const enemy of game.enemies) {
             if (enemy.pos.distanceTo(pos) < radius) {
@@ -2404,6 +2482,25 @@
           game.spawnTimer += 2.5;
           radialDamage(pos, radius, damage);
           createHeartShock(pos, radius);
+        } else if (special.effect === "rift") {
+          for (const enemy of game.enemies) {
+            if (enemy.pos.distanceTo(pos) < radius) {
+              enemy.stunned = Math.max(enemy.stunned, 1.4);
+              enemy.slowed = Math.max(enemy.slowed, 4);
+            }
+          }
+          radialDamage(pos, radius, damage);
+          createChainNet(pos, radius, 0x65d5ff);
+        } else if (special.effect === "titan") {
+          radialDamage(pos, radius, damage);
+          for (const enemy of game.enemies) enemy.stunned = Math.max(enemy.stunned, 0.6);
+          createRing(pos, 0xf8bf48, radius * 1.1);
+          createFireworks(pos, 34, 0xf8bf48);
+          screenPulse(0.28);
+        } else if (special.effect === "meteor") {
+          radialDamage(pos, radius, damage);
+          createFireworks(pos, 96, 0xff7138);
+          createChainSweep(pos, player.facing, radius * 0.72, 0xf8bf48, true);
         } else if (special.effect === "fireworks") {
           radialDamage(pos, radius, damage);
           createFireworks(pos, 72);
@@ -2580,7 +2677,12 @@
         let radius = 0.46;
         let contactDamage = 5.8;
         let name = "Ash Dead";
-        const bodyMat = type === "crawler" ? mats.moss : type === "ranged" ? mats.rune : mats.undead;
+        const bodyMat =
+          type === "crawler" || type === "spitter"
+            ? mats.moss
+            : type === "ranged" || type === "wisp"
+              ? mats.rune
+              : mats.undead;
 
         if (type === "crawler") {
           hp *= 0.68;
@@ -2593,6 +2695,24 @@
           speed *= 0.75;
           contactDamage = 4.8;
           name = "Seidr Revenant";
+        } else if (type === "stalker") {
+          hp *= 0.82;
+          speed *= 1.9;
+          radius = 0.4;
+          contactDamage = 9.2;
+          name = "Shadow Stalker";
+        } else if (type === "wisp") {
+          hp *= 0.62;
+          speed *= 1.2;
+          radius = 0.34;
+          contactDamage = 3.8;
+          name = "Rune Wisp";
+        } else if (type === "spitter") {
+          hp *= 1.18;
+          speed *= 0.68;
+          radius = 0.5;
+          contactDamage = 5.2;
+          name = "Thorn Spitter";
         } else if (type === "hugger") {
           hp *= 1.35;
           speed *= 1.08;
@@ -2638,7 +2758,7 @@
         addLimb(group, new THREE.Vector3(-0.18 * bodyScale, -0.52 * bodyScale, 0.38), new THREE.Vector3(-0.46 * bodyScale, -0.86 * bodyScale, 0.34), 0.08 * bodyScale, mats.undeadDark);
         addLimb(group, new THREE.Vector3(0.18 * bodyScale, -0.52 * bodyScale, 0.38), new THREE.Vector3(0.46 * bodyScale, -0.86 * bodyScale, 0.34), 0.08 * bodyScale, mats.undeadDark);
 
-        if (type === "basic" || type === "crawler") {
+        if (type === "basic" || type === "crawler" || type === "stalker") {
           for (const side of [-1, 1]) {
             const horn = new THREE.Mesh(new THREE.ConeGeometry(0.08 * bodyScale, 0.28 * bodyScale, 5), mats.bone);
             horn.position.set(side * 0.18 * bodyScale, 0.9 * bodyScale, 0.55);
@@ -2653,7 +2773,7 @@
           group.add(shield);
         }
 
-        if (type === "ranged") {
+        if (type === "ranged" || type === "wisp" || type === "spitter") {
           const halo = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.025, 5, 12), mats.rune);
           halo.position.set(0, 0.25, 0.92);
           group.add(halo);
@@ -2662,6 +2782,35 @@
             shard.position.set(-0.28 + i * 0.28, 0.92, 0.72);
             shard.rotation.z = -0.2 + i * 0.2;
             group.add(shard);
+          }
+        }
+
+        if (type === "stalker") {
+          const cloak = new THREE.Mesh(
+            new THREE.ConeGeometry(0.52, 1.08, 5),
+            new THREE.MeshBasicMaterial({ color: 0x11100f, transparent: true, opacity: 0.72 }),
+          );
+          cloak.position.set(0, -0.08, 0.84);
+          cloak.rotation.x = Math.PI / 2;
+          group.add(cloak);
+        }
+
+        if (type === "wisp") {
+          body.scale.multiplyScalar(0.72);
+          const glow = new THREE.Mesh(
+            new THREE.SphereGeometry(0.44, 10, 7),
+            new THREE.MeshBasicMaterial({ color: 0x65d5ff, transparent: true, opacity: 0.32 }),
+          );
+          glow.position.set(0, 0.18, 0.72);
+          group.add(glow);
+        }
+
+        if (type === "spitter") {
+          for (let i = 0; i < 5; i += 1) {
+            const thorn = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.46, 5), mats.moss);
+            thorn.position.set(-0.38 + i * 0.19, 0.58, 0.82);
+            thorn.rotation.z = -0.45 + i * 0.22;
+            group.add(thorn);
           }
         }
 
@@ -3475,6 +3624,19 @@
         createRing(pos, 0xf8bf48, 10);
         createFireworks(pos, 50, 0xf8bf48);
         createChainNet(pos, 9.5, 0xf8bf48);
+      }
+
+      function createSpeedBurst(pos) {
+        createRing(pos, 0x6fef8a, 3.2);
+        const side = new THREE.Vector2(-player.facing.y, player.facing.x);
+        for (let i = 0; i < 10; i += 1) {
+          const start = pos
+            .clone()
+            .add(side.clone().multiplyScalar(rand(-0.7, 0.7)))
+            .add(player.facing.clone().multiplyScalar(rand(-0.2, 0.4)));
+          const end = start.clone().add(player.facing.clone().multiplyScalar(-rand(1.2, 2.8)));
+          createLineEffect(start, end, 0x6fef8a, 0.035, 0.42);
+        }
       }
 
       function createChainNet(pos, radius, color = 0xd4c1a1) {
