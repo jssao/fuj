@@ -2,7 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
     <meta
       name="description"
       content="Santiago's Wrath is a God-of-War-inspired birthday climb game built for Santiago."
@@ -30,6 +33,10 @@
 
       * {
         box-sizing: border-box;
+        -webkit-touch-callout: none;
+        -webkit-user-select: none;
+        -ms-user-select: none;
+        user-select: none;
       }
 
       html,
@@ -45,7 +52,10 @@
         color: var(--ink);
         -webkit-font-smoothing: antialiased;
         text-rendering: optimizeLegibility;
+        overscroll-behavior: none;
         touch-action: none;
+        -webkit-user-select: none;
+        -ms-user-select: none;
         user-select: none;
       }
 
@@ -53,6 +63,7 @@
         font: inherit;
         color: inherit;
         -webkit-tap-highlight-color: transparent;
+        touch-action: manipulation;
       }
 
       .game {
@@ -69,6 +80,7 @@
         height: 100%;
         display: block;
         background: #050302;
+        touch-action: none;
       }
 
       .vignette,
@@ -366,23 +378,26 @@
 
       .special-bar {
         position: relative;
-        width: clamp(88px, 24vw, 118px);
-        height: 58px;
+        width: clamp(94px, 25vw, 124px);
+        height: min(174px, 25svh);
         display: none;
         overflow-x: hidden;
         overflow-y: auto;
         scrollbar-width: none;
-        padding: 0;
-        border: 1px solid rgba(255, 246, 232, 0.2);
-        border-radius: 999px;
+        padding: 112px 0 0;
+        border: 0;
+        border-radius: 22px 22px 999px 999px;
         background:
-          radial-gradient(circle at 34% 25%, rgba(255, 246, 232, 0.18), transparent 26%),
+          linear-gradient(180deg, rgba(8, 5, 4, 0), rgba(8, 5, 4, 0.44) 26%, rgba(8, 5, 4, 0.72) 58%),
+          radial-gradient(circle at 34% 78%, rgba(255, 246, 232, 0.18), transparent 26%),
           linear-gradient(145deg, rgba(90, 22, 16, 0.86), rgba(8, 5, 4, 0.84));
         box-shadow:
           inset 0 -10px 24px rgba(0, 0, 0, 0.34),
           0 16px 52px rgba(0, 0, 0, 0.42);
         pointer-events: auto;
         backdrop-filter: blur(18px);
+        mask-image: linear-gradient(180deg, transparent 0%, black 25%, black 100%);
+        -webkit-mask-image: linear-gradient(180deg, transparent 0%, black 25%, black 100%);
         -webkit-overflow-scrolling: touch;
         overscroll-behavior: contain;
         scroll-snap-type: y proximity;
@@ -402,8 +417,8 @@
         place-items: center;
         height: 58px;
         width: 100%;
-        padding: 0 10px;
-        border: 0;
+        padding: 0 9px;
+        border: 1px solid transparent;
         border-radius: 999px;
         background: transparent;
         color: rgba(255, 246, 232, 0.34);
@@ -411,41 +426,37 @@
         font-weight: 900;
         letter-spacing: 0.07em;
         line-height: 1.05;
+        opacity: 0.34;
         text-align: center;
         text-transform: uppercase;
-        scroll-snap-align: center;
+        transform: scale(0.9);
+        transition:
+          background 160ms ease,
+          border-color 160ms ease,
+          color 160ms ease,
+          opacity 160ms ease,
+          transform 160ms ease;
+        scroll-snap-align: end;
         pointer-events: auto;
       }
 
       .special-chip.selected {
+        border-color: rgba(248, 191, 72, 0.84);
+        background:
+          radial-gradient(circle at 34% 25%, rgba(255, 246, 232, 0.18), transparent 26%),
+          linear-gradient(145deg, rgba(112, 34, 24, 0.94), rgba(29, 12, 8, 0.96));
         color: var(--ink);
+        opacity: 1;
         text-shadow: 0 0 18px rgba(248, 191, 72, 0.42);
+        transform: scale(1);
       }
 
       .special-bar::before,
       .special-bar::after {
-        position: sticky;
-        left: 0;
-        z-index: 1;
-        display: block;
-        width: 100%;
-        height: 58px;
-        content: "";
-        pointer-events: none;
-      }
-
-      .special-bar::before {
-        top: 0;
-        margin-bottom: -58px;
-      }
-
-      .special-bar::after {
-        bottom: 0;
-        margin-top: -58px;
+        display: none;
       }
 
       .special-bar.cast-ready {
-        border-color: rgba(248, 191, 72, 0.8);
         box-shadow:
           inset 0 -10px 24px rgba(0, 0, 0, 0.34),
           0 0 24px rgba(248, 191, 72, 0.26),
@@ -456,11 +467,17 @@
         display: grid;
         place-items: center;
         overflow: hidden;
+        height: 48px;
+        padding: 0;
+        border: 1px solid rgba(255, 246, 232, 0.14);
+        border-radius: 999px;
         color: rgba(255, 246, 232, 0.36);
         font-size: 10px;
         font-weight: 900;
         letter-spacing: 0.08em;
         text-transform: uppercase;
+        mask-image: none;
+        -webkit-mask-image: none;
       }
 
       .special-bar.empty::before {
@@ -619,6 +636,7 @@
         border-radius: 8px;
         background: rgba(0, 0, 0, 0.42);
         color: rgba(255, 246, 232, 0.86);
+        caret-color: transparent;
         font: 11px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
         padding: 10px;
       }
@@ -721,7 +739,9 @@
         }
 
         .special-bar {
-          width: 104px;
+          width: 108px;
+          height: min(164px, 24svh);
+          padding-top: 106px;
         }
       }
     </style>
@@ -899,6 +919,8 @@
 
       const STAGE_HEIGHT = 18;
       const STAGE_COUNT = 112;
+      const WIN_WAVE = 15;
+      const VICTORY_HEAD_Y = WIN_WAVE * STAGE_HEIGHT;
       const HALF_W = 6.2;
       const HALF_H = 7.2;
       const MAX_HEALTH = 100;
@@ -988,6 +1010,8 @@
         birthdayOpened: false,
         birthdayGroup: null,
         birthdayPresent: null,
+        victoryReached: false,
+        victoryGroup: null,
         shakeTimer: 6,
         shakeWarning: 0,
         shakeWarningStartedAt: -999,
@@ -1108,9 +1132,11 @@
 
       buildTerrain();
       buildBirthdayStage();
+      buildVictoryParty();
       updateActorTransforms();
       updateHud();
       showToast("Tap Begin Climb.");
+      preventBrowserZoomAndSelection();
 
       startBtn.addEventListener("click", () => {
         if (game.state === "dead") resetRun();
@@ -1191,14 +1217,11 @@
       copyLogBtn.addEventListener("click", async () => {
         const json = exportGameplayLog();
         logText.value = json;
-        logText.focus();
-        logText.select();
         try {
           await navigator.clipboard.writeText(json);
           showToast("Gameplay log copied.");
         } catch {
-          document.execCommand?.("copy");
-          showToast("Log selected. Copy it back to me.");
+          showToast("Clipboard blocked. Console export is ready.");
         }
       });
 
@@ -1249,6 +1272,42 @@
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
       });
+
+      function preventBrowserZoomAndSelection() {
+        const prevent = (event) => event.preventDefault();
+        document.addEventListener("selectstart", prevent, { passive: false });
+        document.addEventListener("dragstart", prevent, { passive: false });
+        document.addEventListener("contextmenu", prevent, { passive: false });
+        document.addEventListener("dblclick", prevent, { passive: false });
+        window.addEventListener(
+          "wheel",
+          (event) => {
+            if (event.ctrlKey) event.preventDefault();
+          },
+          { passive: false },
+        );
+
+        let lastTouchEnd = 0;
+        document.addEventListener(
+          "touchmove",
+          (event) => {
+            if (event.touches && event.touches.length > 1) event.preventDefault();
+          },
+          { passive: false },
+        );
+        document.addEventListener(
+          "touchend",
+          (event) => {
+            const now = performance.now();
+            if (now - lastTouchEnd < 360) event.preventDefault();
+            lastTouchEnd = now;
+          },
+          { passive: false },
+        );
+        for (const type of ["gesturestart", "gesturechange", "gestureend"]) {
+          window.addEventListener(type, prevent, { passive: false });
+        }
+      }
 
       renderer.setAnimationLoop(() => {
         let dt = clock.getDelta();
@@ -1341,7 +1400,7 @@
 
       function exportGameplayLogObject() {
         return {
-          version: "2026-06-04b",
+          version: "2026-06-05a",
           exportedAt: new Date().toISOString(),
           userAgent: navigator.userAgent,
           viewport: { width: window.innerWidth, height: window.innerHeight, dpr: window.devicePixelRatio },
@@ -1361,13 +1420,11 @@
         const json = exportGameplayLog();
         logText.value = json;
         logPanel.classList.remove("hidden");
-        logText.focus();
-        logText.select();
         try {
           await navigator.clipboard.writeText(json);
           showToast("Gameplay log copied.");
         } catch {
-          showToast("Log ready. Copy the selected text.");
+          showToast("Log ready. Clipboard blocked by browser.");
         }
       }
 
@@ -1452,23 +1509,37 @@
         const contactSlow = player.slow > 0 ? 0.44 : 1;
         const chargeSlow = game.charging ? 0.68 : 1;
         const god = game.godMode > 0 ? 1.35 : 1;
-        const speed = (game.state === "clear" ? 4.2 : 3.15) * contactSlow * chargeSlow * god;
+        const travelSpeed = game.state === "clear" ? 4.2 : game.state === "victory" ? 3.55 : 3.15;
+        const speed = travelSpeed * contactSlow * chargeSlow * god;
 
         if (move.lengthSq() > 0.002 && canMove) {
           player.pos.addScaledVector(move, speed * dt);
           player.facing.copy(move).normalize();
         }
 
-        const halfH = game.state === "clear" ? STAGE_HEIGHT * 0.62 : HALF_H;
+        const climbTop =
+          game.state === "clear" && game.wave >= WIN_WAVE
+            ? STAGE_HEIGHT * 1.22
+            : game.state === "clear"
+              ? STAGE_HEIGHT * 0.62
+              : game.state === "victory"
+                ? STAGE_HEIGHT * 0.72
+                : HALF_H;
+        const climbBottom = game.state === "victory" ? STAGE_HEIGHT * 0.52 : HALF_H;
         player.pos.x = THREE.MathUtils.clamp(player.pos.x, -HALF_W, HALF_W);
         player.pos.y = THREE.MathUtils.clamp(
           player.pos.y,
-          game.stageCenter - HALF_H,
-          game.stageCenter + halfH,
+          game.stageCenter - climbBottom,
+          game.stageCenter + climbTop,
         );
 
-        if (game.state === "clear" && player.pos.y > game.stageCenter + STAGE_HEIGHT * 0.5) {
-          beginWave(game.wave + 1);
+        const climbThreshold = game.wave >= WIN_WAVE ? STAGE_HEIGHT * 0.9 : STAGE_HEIGHT * 0.5;
+        if (game.state === "clear" && player.pos.y > game.stageCenter + climbThreshold) {
+          if (game.wave >= WIN_WAVE) {
+            enterVictory();
+          } else {
+            beginWave(game.wave + 1);
+          }
         }
 
         player.slow = Math.max(0, player.slow - dt);
@@ -1837,6 +1908,10 @@
       }
 
       function beginWave(wave) {
+        if (wave > WIN_WAVE) {
+          enterVictory();
+          return;
+        }
         game.wave = wave;
         game.stageCenter = (wave - 1) * STAGE_HEIGHT;
         game.cameraTargetY = game.stageCenter;
@@ -1888,7 +1963,37 @@
         game.bestWave = Math.max(game.bestWave, game.wave);
         updateBestStorage();
         logEvent("wave-clear", { wave: game.wave, waveKills: game.waveKills });
-        showToast("Wave clear. Climb upward.");
+        showToast(
+          game.wave >= WIN_WAVE
+            ? "Wave 15 clear. Climb to the colossus head."
+            : "Wave clear. Climb upward.",
+          game.wave >= WIN_WAVE ? 3.4 : 2.2,
+        );
+      }
+
+      function enterVictory() {
+        if (game.victoryReached) return;
+        game.victoryReached = true;
+        game.state = "victory";
+        game.wave = WIN_WAVE;
+        game.stageCenter = VICTORY_HEAD_Y;
+        game.cameraTargetY = VICTORY_HEAD_Y;
+        game.health = MAX_HEALTH;
+        game.boss = null;
+        if (game.shake > 0 || game.shakeWarning > 0) endShake("victory");
+        for (const enemy of game.enemies) groups.actors.remove(enemy.group);
+        for (const projectile of game.projectiles) groups.effects.remove(projectile.mesh);
+        game.enemies = [];
+        game.projectiles = [];
+        game.spawned = game.waveTotal;
+        player.pos.y = Math.max(player.pos.y, VICTORY_HEAD_Y - 4.8);
+        player.pos.x = THREE.MathUtils.clamp(player.pos.x, -2.8, 2.8);
+        activateVictorySky();
+        createFireworks(new THREE.Vector2(0, VICTORY_HEAD_Y + 2.4), 96);
+        createChampagne(new THREE.Vector2(0, VICTORY_HEAD_Y + 0.8), 64);
+        createRing(new THREE.Vector2(0, VICTORY_HEAD_Y), 0xf8bf48, 10);
+        logEvent("victory", { wave: WIN_WAVE, kills: game.kills, bestStreak: game.bestStreak });
+        showToast("The head opens into Santiago's birthday pool party.", 5.2);
       }
 
       function die() {
@@ -1926,6 +2031,7 @@
         game.selectedSpecial = 0;
         game.birthdayWave = 3 + Math.floor(Math.random() * 3);
         game.birthdayOpened = false;
+        game.victoryReached = false;
         game.stage100Seen = false;
         game.maxChargeBuff = false;
         game.chargeSpeedBuff = 0;
@@ -1943,9 +2049,16 @@
         for (const enemy of game.enemies) groups.actors.remove(enemy.group);
         for (const projectile of game.projectiles) groups.effects.remove(projectile.mesh);
         for (const pickup of game.pickups) groups.effects.remove(pickup.mesh);
+        for (const effect of game.effects) {
+          groups.effects.remove(effect.mesh);
+          if (effect.chain) groups.effects.remove(effect.chain);
+        }
         game.enemies = [];
         game.projectiles = [];
         game.pickups = [];
+        game.effects = [];
+        game.boss = null;
+        resetWorldTheme();
         rebuildBirthdayStage();
         updateHud();
         renderSpecialBar();
@@ -2183,7 +2296,7 @@
         const selected = specialBar.querySelector(".special-chip.selected");
         if (selected) {
           requestAnimationFrame(() => {
-            selected.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
+            selected.scrollIntoView({ block: "end", inline: "nearest", behavior: "smooth" });
           });
         }
       }
@@ -2193,13 +2306,13 @@
         const chips = [...specialBar.querySelectorAll(".special-chip")];
         if (!chips.length) return;
         const barRect = specialBar.getBoundingClientRect();
-        const center = barRect.top + barRect.height / 2;
+        const loadedSlotCenter = barRect.bottom - 29;
         let bestIndex = game.selectedSpecial;
         let bestDistance = Infinity;
         chips.forEach((chip, index) => {
           const rect = chip.getBoundingClientRect();
           const chipCenter = rect.top + rect.height / 2;
-          const distance = Math.abs(chipCenter - center);
+          const distance = Math.abs(chipCenter - loadedSlotCenter);
           if (distance < bestDistance) {
             bestDistance = distance;
             bestIndex = index;
@@ -2851,27 +2964,286 @@
         buildBirthdayStage();
       }
 
+      function buildVictoryParty() {
+        const group = new THREE.Group();
+        group.position.y = VICTORY_HEAD_Y;
+
+        const skyMat = new THREE.MeshBasicMaterial({ color: 0x84d8ff });
+        const skyPlate = new THREE.Mesh(new THREE.PlaneGeometry(18, 28), skyMat);
+        skyPlate.position.set(0, 2.2, 0.06);
+        group.add(skyPlate);
+
+        const horizon = new THREE.Mesh(
+          new THREE.PlaneGeometry(17.5, 7.4),
+          new THREE.MeshBasicMaterial({
+            color: 0xffd7a4,
+            transparent: true,
+            opacity: 0.56,
+          }),
+        );
+        horizon.position.set(0, 7.4, 0.08);
+        group.add(horizon);
+
+        const sunDisc = new THREE.Mesh(
+          new THREE.CircleGeometry(1.15, 32),
+          new THREE.MeshBasicMaterial({ color: 0xfff0a8, transparent: true, opacity: 0.9 }),
+        );
+        sunDisc.position.set(4.85, 6.4, 0.1);
+        group.add(sunDisc);
+
+        for (let i = 0; i < 7; i += 1) {
+          const cloud = new THREE.Group();
+          const cloudMat = new THREE.MeshBasicMaterial({
+            color: 0xfff6e8,
+            transparent: true,
+            opacity: 0.78,
+          });
+          for (let j = 0; j < 4; j += 1) {
+            const puff = new THREE.Mesh(new THREE.CircleGeometry(rand(0.36, 0.72), 18), cloudMat);
+            puff.position.set(j * 0.48, rand(-0.12, 0.12), 0);
+            cloud.add(puff);
+          }
+          cloud.position.set(rand(-7.4, 5.4), rand(1.6, 8.7), 0.12);
+          cloud.scale.setScalar(rand(0.75, 1.35));
+          group.add(cloud);
+        }
+
+        const head = new THREE.Group();
+        const headMat = new THREE.MeshStandardMaterial({
+          color: 0x6a5d4b,
+          roughness: 1,
+          flatShading: true,
+        });
+        const skull = new THREE.Mesh(new THREE.SphereGeometry(3.9, 18, 10), headMat);
+        skull.scale.set(1.34, 1.72, 0.18);
+        skull.position.set(0, -2.15, 0.42);
+        head.add(skull);
+
+        const jaw = new THREE.Mesh(new THREE.BoxGeometry(5.9, 2.2, 0.42), mats.stoneDark);
+        jaw.position.set(0, -5.1, 0.34);
+        jaw.rotation.z = 0.02;
+        head.add(jaw);
+
+        for (const side of [-1, 1]) {
+          const temple = new THREE.Mesh(new THREE.DodecahedronGeometry(1.35, 0), mats.stone);
+          temple.position.set(side * 4.25, -2.15, 0.44);
+          temple.scale.set(0.72, 1.5, 0.26);
+          temple.rotation.z = side * 0.28;
+          head.add(temple);
+
+          const horn = new THREE.Mesh(new THREE.ConeGeometry(0.42, 2.15, 7), mats.bone);
+          horn.position.set(side * 3.25, 1.25, 0.55);
+          horn.rotation.z = side * -0.7;
+          horn.rotation.x = Math.PI / 2;
+          head.add(horn);
+
+          const eye = new THREE.Mesh(
+            new THREE.SphereGeometry(0.62, 16, 8),
+            new THREE.MeshBasicMaterial({ color: 0x65d5ff, transparent: true, opacity: 0.86 }),
+          );
+          eye.position.set(side * 1.34, -2.24, 0.72);
+          eye.scale.set(1.2, 0.42, 0.18);
+          head.add(eye);
+
+          const brow = new THREE.Mesh(new THREE.BoxGeometry(1.68, 0.24, 0.22), mats.moss);
+          brow.position.set(side * 1.34, -1.55, 0.72);
+          brow.rotation.z = side * -0.18;
+          head.add(brow);
+        }
+
+        const nose = new THREE.Mesh(new THREE.BoxGeometry(0.58, 1.4, 0.28), mats.stoneDark);
+        nose.position.set(0, -2.82, 0.78);
+        nose.rotation.z = 0.04;
+        head.add(nose);
+
+        const mouth = new THREE.Mesh(
+          new THREE.BoxGeometry(2.7, 0.28, 0.18),
+          new THREE.MeshBasicMaterial({ color: 0x1a0f0b, transparent: true, opacity: 0.78 }),
+        );
+        mouth.position.set(0, -4.32, 0.74);
+        head.add(mouth);
+
+        for (let i = 0; i < 11; i += 1) {
+          const tooth = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.42, 5), mats.bone);
+          tooth.position.set(-1.18 + i * 0.236, -4.45, 0.82);
+          tooth.rotation.x = Math.PI / 2;
+          head.add(tooth);
+        }
+
+        for (let i = 0; i < 34; i += 1) {
+          const grass = new THREE.Mesh(new THREE.ConeGeometry(0.07, rand(0.32, 0.72), 5), mats.moss);
+          grass.position.set(rand(-4.8, 4.8), rand(-5.6, 1.4), 0.74);
+          grass.rotation.z = rand(-0.6, 0.6);
+          head.add(grass);
+        }
+
+        group.add(head);
+
+        const deck = new THREE.Mesh(
+          new THREE.BoxGeometry(10.4, 7.3, 0.18),
+          new THREE.MeshStandardMaterial({ color: 0xb88352, roughness: 0.82, flatShading: true }),
+        );
+        deck.position.set(0, 1.35, 0.58);
+        group.add(deck);
+
+        const textCanvas = document.createElement("canvas");
+        textCanvas.width = 1600;
+        textCanvas.height = 420;
+        const ctx = textCanvas.getContext("2d");
+        ctx.clearRect(0, 0, textCanvas.width, textCanvas.height);
+        ctx.fillStyle = "#fff6e8";
+        ctx.strokeStyle = "#b3131b";
+        ctx.lineWidth = 20;
+        ctx.font = "900 108px Impact, Arial Black, sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.strokeText("HAPPY BIRTHDAY", 800, 132);
+        ctx.fillText("HAPPY BIRTHDAY", 800, 132);
+        ctx.fillStyle = "#f8bf48";
+        ctx.strokeStyle = "#3e160b";
+        ctx.strokeText("SANTIAGO!", 800, 282);
+        ctx.fillText("SANTIAGO!", 800, 282);
+        const textMesh = new THREE.Mesh(
+          new THREE.PlaneGeometry(11.6, 3.05),
+          new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(textCanvas), transparent: true }),
+        );
+        textMesh.position.set(0, 5.2, 0.72);
+        group.add(textMesh);
+
+        const pool = new THREE.Mesh(
+          new THREE.CylinderGeometry(1.75, 1.75, 0.18, 24),
+          new THREE.MeshStandardMaterial({ color: 0x29b9d8, roughness: 0.32, metalness: 0.05 }),
+        );
+        pool.position.set(-3.15, 0.65, 0.82);
+        pool.rotation.x = Math.PI / 2;
+        group.add(pool);
+        const poolRim = new THREE.Mesh(
+          new THREE.TorusGeometry(1.82, 0.13, 12, 28),
+          new THREE.MeshStandardMaterial({ color: 0xfff6e8, roughness: 0.58 }),
+        );
+        poolRim.position.copy(pool.position);
+        group.add(poolRim);
+
+        const floatie = new THREE.Mesh(
+          new THREE.TorusGeometry(0.58, 0.12, 10, 22),
+          new THREE.MeshStandardMaterial({ color: 0xf05a28, roughness: 0.52 }),
+        );
+        floatie.position.set(-3.2, 0.55, 0.96);
+        group.add(floatie);
+
+        const cake = new THREE.Group();
+        const cakeBase = new THREE.Mesh(new THREE.CylinderGeometry(0.72, 0.82, 0.42, 16), mats.bone);
+        cakeBase.rotation.x = Math.PI / 2;
+        const icing = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.66, 0.72, 0.18, 16),
+          new THREE.MeshStandardMaterial({ color: 0xffd6e7, roughness: 0.62 }),
+        );
+        icing.position.z = 0.18;
+        icing.rotation.x = Math.PI / 2;
+        cake.add(cakeBase, icing);
+        for (let i = 0; i < 5; i += 1) {
+          const candle = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.42, 6), mats.gold);
+          candle.position.set(-0.42 + i * 0.21, 0.05, 0.36);
+          cake.add(candle);
+          const flame = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.18, 7), mats.gold);
+          flame.position.set(candle.position.x, candle.position.y, 0.62);
+          cake.add(flame);
+        }
+        cake.position.set(1.1, 0.35, 0.86);
+        group.add(cake);
+
+        const present = new THREE.Group();
+        present.add(new THREE.Mesh(new THREE.BoxGeometry(1.35, 1.1, 0.82), mats.presentRed));
+        const ribbonA = new THREE.Mesh(new THREE.BoxGeometry(0.24, 1.22, 0.9), mats.presentGold);
+        const ribbonB = new THREE.Mesh(new THREE.BoxGeometry(1.45, 0.22, 0.92), mats.presentGold);
+        present.add(ribbonA, ribbonB);
+        present.position.set(3.55, 0.65, 0.92);
+        present.rotation.z = -0.08;
+        group.add(present);
+
+        for (let i = 0; i < 6; i += 1) {
+          const table = new THREE.Group();
+          const top = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.08, 12), mats.bone);
+          top.rotation.x = Math.PI / 2;
+          const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.56, 6), mats.metal);
+          pole.position.z = 0.18;
+          table.add(top, pole);
+          table.position.set(rand(-4.6, 4.6), rand(-2.0, 3.5), 0.78);
+          group.add(table);
+        }
+
+        for (let i = 0; i < 9; i += 1) {
+          const umbrella = new THREE.Group();
+          const canopy = new THREE.Mesh(
+            new THREE.ConeGeometry(0.62, 0.48, 10),
+            new THREE.MeshStandardMaterial({
+              color: i % 3 === 0 ? 0xf8bf48 : i % 3 === 1 ? 0x65d5ff : 0xb3131b,
+              roughness: 0.55,
+            }),
+          );
+          canopy.rotation.x = Math.PI / 2;
+          const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.72, 6), mats.metal);
+          umbrella.add(canopy, pole);
+          umbrella.position.set(rand(-5, 5), rand(-2.7, 4.2), 1.08);
+          umbrella.rotation.z = rand(-0.25, 0.25);
+          group.add(umbrella);
+        }
+
+        for (let i = 0; i < 22; i += 1) {
+          const hue = i % 5 === 0 ? 0xf8bf48 : i % 5 === 1 ? 0xb3131b : i % 5 === 2 ? 0x65d5ff : i % 5 === 3 ? 0xfff6e8 : 0x6f8c42;
+          const balloon = new THREE.Mesh(
+            new THREE.SphereGeometry(0.22, 10, 8),
+            new THREE.MeshStandardMaterial({ color: hue, roughness: 0.36, metalness: 0.04 }),
+          );
+          balloon.position.set(rand(-5.6, 5.6), rand(3.1, 6.7), 0.96);
+          balloon.scale.y = 1.22;
+          group.add(balloon);
+          const string = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.009, 0.62, 4), mats.bone);
+          string.position.set(balloon.position.x, balloon.position.y - 0.44, 0.78);
+          group.add(string);
+        }
+
+        for (let i = 0; i < 42; i += 1) {
+          const confetti = new THREE.Mesh(
+            new THREE.BoxGeometry(0.08, 0.16, 0.025),
+            new THREE.MeshBasicMaterial({
+              color: i % 4 === 0 ? 0xf8bf48 : i % 4 === 1 ? 0x65d5ff : i % 4 === 2 ? 0xb3131b : 0xfff6e8,
+              transparent: true,
+              opacity: 0.86,
+            }),
+          );
+          confetti.position.set(rand(-5.5, 5.5), rand(-2.9, 5.4), 0.96);
+          confetti.rotation.z = rand(0, Math.PI);
+          group.add(confetti);
+        }
+
+        groups.props.add(group);
+        game.victoryGroup = group;
+      }
+
       function updateActorTransforms() {
         player.group.position.set(player.pos.x, player.pos.y, 0.64);
         player.group.rotation.z = facingToRotation(player.facing);
       }
 
       function updateCamera(dt) {
-        game.cameraY = THREE.MathUtils.lerp(game.cameraY, game.cameraTargetY, Math.min(1, dt * 2.1));
+        const cameraEase = game.state === "victory" ? 1.35 : 2.1;
+        game.cameraY = THREE.MathUtils.lerp(game.cameraY, game.cameraTargetY, Math.min(1, dt * cameraEase));
         const t = performance.now() / 1000;
         const shakeAmount = game.shake > 0 ? 0.22 : game.shakeWarning > 0 ? 0.08 : 0;
         const night = game.wave >= 100 ? 1 : 0;
+        const victory = game.state === "victory" ? 1 : 0;
         camera.position.set(
           player.pos.x * 0.15 + Math.sin(t * 47) * shakeAmount,
-          game.cameraY - 8.4 + Math.cos(t * 39) * shakeAmount,
-          16.5 - Math.min(2.2, window.innerWidth / window.innerHeight) + night * 1.4,
+          game.cameraY - 8.4 + victory * 1.45 + Math.cos(t * 39) * shakeAmount,
+          16.5 - Math.min(2.2, window.innerWidth / window.innerHeight) + night * 1.4 - victory * 1.05,
         );
-        camera.lookAt(player.pos.x * 0.05, game.cameraY + 1.2, 0);
+        camera.lookAt(player.pos.x * 0.05, game.cameraY + 1.2 + victory * 1.4, 0);
         runeLight.position.set(player.pos.x, player.pos.y + 4, 7);
       }
 
       function updateHud() {
-        ui.wave.textContent = game.wave;
+        ui.wave.textContent = game.victoryReached ? WIN_WAVE : game.wave;
         ui.streak.textContent = game.streak;
         ui.kills.textContent = game.kills;
         ui.best.textContent = game.bestWave;
@@ -3255,12 +3627,36 @@
       function activateNightTheme() {
         scene.background.set(0x020611);
         scene.fog.color.set(0x020611);
+        scene.fog.density = 0.018;
         hemi.intensity = 0.75;
+        sun.color.set(0xffb15c);
+        sun.intensity = 2.2;
         runeLight.color.set(0xa9e3ff);
         showToast("The head wakes. Night mode begins.", 3.6);
       }
 
+      function activateVictorySky() {
+        scene.background.set(0x8ed8ff);
+        scene.fog.color.set(0x8ed8ff);
+        scene.fog.density = 0.004;
+        hemi.intensity = 2.25;
+        sun.color.set(0xfff0bd);
+        sun.intensity = 3.4;
+        runeLight.color.set(0xfff0bd);
+      }
+
+      function resetWorldTheme() {
+        scene.background.set(0x090504);
+        scene.fog.color.set(0x090504);
+        scene.fog.density = 0.018;
+        hemi.intensity = 1.35;
+        sun.color.set(0xffb15c);
+        sun.intensity = 2.2;
+        runeLight.color.set(0x65d5ff);
+      }
+
       function stageName(wave) {
+        if (game.victoryReached) return "Birthday pool head";
         if (wave === game.birthdayWave) return "Happy Birthday Santiago!";
         if (wave >= 100) return "Night head";
         if (wave % 10 === 0) return "Boss ledge";
