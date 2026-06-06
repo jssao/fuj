@@ -2276,11 +2276,11 @@
         const t0 = ctx.currentTime;
         const osc = ctx.createOscillator();
         const g = ctx.createGain();
-        osc.type = "triangle";
-        osc.frequency.setValueAtTime(110, t0);
-        osc.frequency.linearRampToValueAtTime(460, t0 + 1.5);
+        osc.type = "sine"; // warm pure tone (was triangle — harmonics whined at the top)
+        osc.frequency.setValueAtTime(90, t0);
+        osc.frequency.linearRampToValueAtTime(180, t0 + 1.5); // gentle low rise, no high whine (was ->460)
         g.gain.setValueAtTime(0.0001, t0);
-        g.gain.linearRampToValueAtTime(0.08, t0 + 0.18);
+        g.gain.linearRampToValueAtTime(0.07, t0 + 0.2);
         osc.connect(g);
         g.connect(audio.master);
         osc.start(t0);
