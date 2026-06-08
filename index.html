@@ -401,7 +401,9 @@
         overflow-x: hidden;
         overflow-y: auto;
         scrollbar-width: none;
-        padding: 52px 0 8px;
+        /* Top padding must be big enough that the FIRST chip can scroll down into the bottom "loaded"
+           slot — at 52px it couldn't, so selection always stopped on the 2nd chip. */
+        padding: 100px 0 8px;
         border: 0;
         border-radius: 18px;
         background:
@@ -417,7 +419,7 @@
         -webkit-mask-image: linear-gradient(180deg, transparent 0%, black 25%, black 100%);
         -webkit-overflow-scrolling: touch;
         overscroll-behavior: contain;
-        scroll-padding: 52px 0 8px;
+        scroll-padding: 100px 0 8px;
         scroll-snap-type: y proximity;
         touch-action: pan-y;
       }
@@ -506,6 +508,81 @@
         margin: 0;
         content: "Skill";
         color: var(--ink);
+      }
+
+      /* Two selector strips side by side: ELEMENT bank (red) + STREAK bank (blue).
+         (Named .bank-row, NOT .bar-row — the HUD stat bars already own .bar-row.) */
+      .bank-row {
+        display: flex;
+        align-items: flex-end;
+        gap: 6px;
+      }
+
+      .bank-col {
+        position: relative;
+        display: flex;
+      }
+
+      /* "×N" count of banked specials, floating in the faded top of each bar. */
+      .bank-count {
+        position: absolute;
+        top: 6px;
+        left: 0;
+        right: 0;
+        z-index: 2;
+        text-align: center;
+        font-size: 12px;
+        font-weight: 900;
+        letter-spacing: 0.04em;
+        color: rgba(255, 246, 232, 0.92);
+        text-shadow: 0 1px 4px rgba(0, 0, 0, 0.72);
+        pointer-events: none;
+      }
+
+      .bank-count:empty {
+        display: none;
+      }
+
+      .bank-row .special-bar {
+        width: clamp(80px, 21vw, 112px);
+      }
+
+      .streak-bar {
+        background:
+          linear-gradient(180deg, rgba(8, 5, 4, 0), rgba(8, 5, 4, 0.42) 28%, rgba(8, 5, 4, 0.76) 64%),
+          radial-gradient(circle at 34% 78%, rgba(155, 231, 255, 0.18), transparent 26%),
+          linear-gradient(145deg, rgba(24, 62, 88, 0.86), rgba(8, 5, 4, 0.84));
+      }
+
+      .streak-bar .special-chip.selected {
+        border-color: rgba(155, 231, 255, 0.84);
+        background:
+          radial-gradient(circle at 34% 25%, rgba(255, 246, 232, 0.18), transparent 26%),
+          linear-gradient(145deg, rgba(28, 74, 104, 0.94), rgba(8, 18, 29, 0.96));
+        text-shadow: 0 0 18px rgba(155, 231, 255, 0.42);
+      }
+
+      .streak-btn {
+        width: clamp(76px, 19vw, 98px);
+        height: 48px;
+        border-radius: 999px;
+        padding: 0 10px;
+        font-size: 9px;
+        line-height: 1.05;
+        text-align: center;
+        display: none;
+        border-color: rgba(155, 231, 255, 0.5);
+        background:
+          radial-gradient(circle at 36% 28%, rgba(255, 255, 255, 0.24), transparent 24%),
+          linear-gradient(145deg, rgba(24, 62, 88, 0.95), rgba(10, 16, 22, 0.88));
+      }
+
+      .streak-btn.visible {
+        display: grid;
+      }
+
+      .streak-btn:disabled {
+        opacity: 0.4;
       }
 
       .buttons {
@@ -878,7 +955,8 @@
     <script type="importmap">
       {
         "imports": {
-          "three": "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js"
+          "three": "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/"
         }
       }
     </script>
@@ -954,10 +1032,18 @@
           </div>
 
           <div class="action-stack">
-            <div class="special-bar" id="specialBar"></div>
+            <div class="bank-row">
+              <div class="bank-col">
+                <div class="bank-count" id="elemCount"></div>
+                <div class="special-bar" id="specialBar"></div>
+              </div>
+              <div class="bank-col">
+                <div class="bank-count" id="streakCount"></div>
+                <div class="special-bar streak-bar" id="streakBar"></div>
+              </div>
+            </div>
             <div class="buttons">
               <button class="round-btn interact-btn" id="interactBtn" type="button">Open</button>
-              <button class="round-btn throw-btn" id="throwBtn" type="button">Axe</button>
               <button class="round-btn attack-btn" id="attackBtn" type="button">Swing</button>
             </div>
           </div>
@@ -1005,13 +1091,15 @@
       const attackBtn = document.getElementById("attackBtn");
       const specialBtn = document.getElementById("specialBtn");
       const interactBtn = document.getElementById("interactBtn");
-      const throwBtn = document.getElementById("throwBtn");
       const logBtn = document.getElementById("logBtn");
       const logPanel = document.getElementById("logPanel");
       const logText = document.getElementById("logText");
       const copyLogBtn = document.getElementById("copyLogBtn");
       const closeLogBtn = document.getElementById("closeLogBtn");
       const specialBar = document.getElementById("specialBar");
+      const streakBar = document.getElementById("streakBar");
+      const elemCount = document.getElementById("elemCount");
+      const streakCount = document.getElementById("streakCount");
       const stickZone = document.getElementById("stickZone");
       const stickKnob = document.getElementById("stickKnob");
       const damageFlash = document.getElementById("damageFlash");
@@ -1048,8 +1136,8 @@
       // Shadow-of-the-Colossus "Forbidden Lands" daytime: a pale, luminous sage-grey haze the
       // world dissolves into (the fog colour must be bright, never dark). Combat/night/birthday
       // themes still override this; the SotC film grade sits on top of whatever theme is active.
-      scene.background = new THREE.Color(0x9ea596);
-      scene.fog = new THREE.FogExp2(0x9ea596, 0.014); // lightened (user: fog too dense)
+      scene.background = new THREE.Color(0x6b6f62);
+      scene.fog = new THREE.FogExp2(0x6b6f62, 0.014); // lightened (user: fog too dense)
 
       const camera = new THREE.PerspectiveCamera(
         46,
@@ -1424,9 +1512,17 @@
       let walkPhase = 0;
       let sigilTex = null; // cached glowing-sigil glyph texture
       let colossusCreature = null; // standalone hero colossus beast shown in the start-of-game intro
+      let glbColossus = null; // shared loaded colossus.glb scene (PROGRESSIVE ENHANCEMENT; null until/unless loaded)
+      let colossusSpineMesh = null; // ref to the procedural climbed-body mesh so the GLB swap can hide it
+      let glbIntroNode = null, glbIntroBaseY = 0, glbIntroBaseRotX = 0, glbIntroBaseRotZ = 0; // intro GLB clone + its rest pose, for the lumber
+      let glbColossusClip = null, glbMixer = null, glbIntroAction = null; // the Mixamo walk clip + its AnimationMixer + the playing action (rigged intro colossus)
       let introSilhouette = null; // tiny foreground figure looking up (conveys the beast's scale)
+      let introForeground = null; // near-field rock field that sweeps the lower frame during the intro (parallax/scale)
       const introDust = []; // short-lived footfall dust puffs spawned during the intro cinematic
       let introFadeEl = null; // DOM black fade layer for the intro -> gameplay transition
+      let introFogDensity = 0.014; // saved gameplay fog density (the cinematic clears the air, then restores this)
+      let introFogColorHex = 0x6b6f62; // saved gameplay fog colour (cinematic swaps to pale SotC haze, then restores)
+      let introBgHex = 0x6b6f62; // saved gameplay background colour
 
       // ====================================================================================
       // COLOSSUS — tunable proportions for the DISCRETE hero beast built by buildColossusCreature().
@@ -1437,33 +1533,78 @@
       // y=0 at the feet sole, +x = forward / head-jut direction, +z = lateral / toward the intro camera).
       const COLOSSUS = {
         seed: 0x5a9c01,
-        // --- LEGS (stout columns, broad forward stone feet) ---
-        hipHeight: 42, // feet-sole -> hip pivot
-        legSeparation: 11, // half-gap between the two legs (lateral)
-        thighLen: 22, thighTopR: 11, thighBotR: 9, // upper-leg taper (radii)
-        shinLen: 14, shinTopR: 9, shinBotR: 7,
-        footLen: 23, footWide: 15, footHigh: 6, // broad forward stone-block foot
-        // --- TORSO (top-heavy + hunched) ---
-        bellyW: 16, bellyD: 14, // lower torso / belly half-widths (bare hide)
-        upperBackW: 24, upperBackD: 18, // broad upper back & shoulder yoke (furred)
-        torsoHeight: 47, // hip -> shoulder line
-        hunch: 7, // how far the upper back juts FORWARD of the hips (+x)
-        humpR: 12, // rounded hunch-hump bulge on the upper back
-        // --- ARMS (long, gorilla, hanging near the ground) ---
-        shoulderSpan: 25, // half-gap of the shoulder pivots from centre (lateral)
-        upperArmLen: 32, upperArmR: 8.5,
-        foreArmLen: 30, foreArmR: 7.5,
-        handR: 6,
-        armHang: 0.22, // resting forward swing of the arms (radians, +x)
-        armSplay: 0.12, // resting outward lateral splay
-        // --- HEAD (small, low, jutting forward) ---
-        neckR: 7,
-        headR: 8, // head SIZE (small vs the hunched shoulders)
-        headForward: 15, // how far the head juts forward of the shoulders (+x)
-        headDrop: 11, // how far the head sits BELOW the shoulder line
-        hornLen: 7, // stone horns (0 disables)
+        // Reshaped toward the SAM mesh silhouette: a STOCKIER, more UPRIGHT brute (broad rounded shoulders, thick
+        // short legs, short heavy mitt-arms, a bigger upright head, and a curved segmented TAIL) — vs the old
+        // gorilla-hunched ape. Tune freely; the gait reads parts by name so proportions never break the walk.
+        // --- LEGS (thick stout columns, broad forward stone feet) ---
+        hipHeight: 40, // feet-sole -> hip pivot
+        legSeparation: 13, // half-gap between the two legs (lateral) — wide stocky stance
+        thighLen: 20, thighTopR: 13, thighBotR: 11, // thick upper-leg taper (radii)
+        shinLen: 14, shinTopR: 11, shinBotR: 9,
+        footLen: 22, footWide: 17, footHigh: 7, // broad forward stone-block foot
+        // --- TORSO (top-heavy, broad, only gently hunched -> more upright) ---
+        bellyW: 18, bellyD: 15, // lower torso / belly half-widths (bare hide)
+        upperBackW: 26, upperBackD: 18, // broad upper back & shoulder yoke (furred)
+        torsoHeight: 64, // hip -> shoulder line (LONGER torso per feedback -> taller, more imposing colossus; head/arms ride this)
+        hunch: 4, // how far the upper back juts FORWARD of the hips (+x) — gentler = more upright
+        humpR: 13, // rounded shoulder/back bulge
+        // --- ARMS (SHORT + thick, heavy mitt hands) ---
+        shoulderSpan: 27, // half-gap of the shoulder pivots from centre (lateral) — broad shoulders
+        upperArmLen: 26, upperArmR: 10.5,
+        foreArmLen: 24, foreArmR: 9.5,
+        handR: 8, // big blocky mitts
+        armHang: 0.34, // resting forward swing of the arms (radians, +x)
+        armSplay: 0.14, // resting outward lateral splay
+        // --- HEAD (bigger, more upright, mild forward jut) ---
+        neckR: 8,
+        headR: 10, // head SIZE
+        headForward: 9, // how far the head juts forward of the shoulders (+x)
+        headDrop: 5, // how far the head sits BELOW the shoulder line (small = upright)
+        hornLen: 8, // stone horns / crest spikes (0 disables)
+        // --- TAIL (curved segmented appendage off the lower back — the SAM mesh signature) ---
+        tailSegs: 7, tailBaseR: 7, tailLen: 46, tailCurve: 0.28,
         // --- FUR (strand-cards per region) ---
         furBack: 64, furShoulder: 24, furArm: 14, furThigh: 13,
+      };
+
+      // ====================================================================================
+      // GLB COLOSSUS — drops the authored game/colossus.glb in as the VISIBLE colossus in two spots:
+      // the start INTRO beast and the CLIMBED body. PROGRESSIVE ENHANCEMENT only: the GLB is loaded via a
+      // guarded dynamic import after startup; if it fails (offline / headless smoke / parse) the game keeps
+      // the procedural creature + spine and runs identically. GAMEPLAY IS UNTOUCHED — surfaceZ/bodyRadius/
+      // combat/camera/spawns still ride the procedural surface; the GLB is purely the visible skin.
+      //
+      // TUNING: these are the ONLY knobs to change. Reload after each tweak and judge from a screenshot.
+      //   scale          uniform size (world units; the GLB ships unit-scale ~1x0.89x0.40, centred at origin)
+      //   rotX/rotY/rotZ orientation in RADIANS (the SAM extraction's native axis is unknown — rotate to face/stand)
+      //   posX/posY/posZ offset in world units WITHIN the parent (intro: relative to the creature root at the
+      //                  feet/sole, y up; climb: relative to groups.terrain — body climbs along +Y, front faces +z)
+      // First guesses below are rough — expect to tune. enabled:false on either section keeps that one procedural.
+      const GLB_COLOSSUS = {
+        url: "./colossus-walk.glb", // RIGGED + ANIMATED (Mixamo auto-rig + walk clip); served on static Pages
+        // INTRO: a giant lumbering across the desert. AUTO-FIT: the GLB is scaled so its world height ==
+        // targetHeight and its FEET are seated at posY (creature root = ground), centred on posX/posZ — so
+        // you tune the giant's HEIGHT directly (no raw scale guessing). rot* (radians) fix orientation.
+        // clipTimeScale slows the walk clip (giant = ponderous; <1 = slower, the clip is ~3.2s/cycle).
+        // rotY faces the model along the march vector (right + slightly away). NATIVE FACING IS UNKNOWN (SAM/assimp
+        // extraction) — eyeball it: if the beast walks backward/sideways, nudge rotY by ±PI/2 or ±PI. rotX/rotZ stand it
+        // up if it loads lying down. AUTO-FIT measures the TRUE posed height (robust to the skinned-mesh armature scale)
+        // and seats the feet on the sand, so targetHeight is the only size knob.
+        // useClip: the Mixamo->assimp walk clip is BROKEN for three.js playback — assimp splits every bone into
+        // `_$AssimpFbx$_Translation/_Rotation/_Scaling` pivot helper nodes, and animating that chain corrupts the
+        // skinned pose (the body teleports ~130x off-camera; verified via headless render). assimp is the only
+        // FBX->glTF converter available locally (no Blender / no arm64 FBX2glTF), so we render the GLB in its CORRECT
+        // bind pose (= the SAM colossus's natural shape) and drive it with the procedural whole-body lumber instead.
+        // Flip to true only once colossus-walk.glb is re-exported via Blender/FBX2glTF (clean, pivot-free skeleton).
+        // enabled:false -> REVERTED to the procedural hero colossus (buildColossusCreature + colossusGait). The SAM
+        // GLB intro is retired: the assimp walk clip is unusable for three.js and the static blob can't articulate.
+        // Instead the procedural colossus is reshaped toward the SAM mesh silhouette and walked from the FBX-derived
+        // cycle (see colossusGait). Loader code stays dormant + smoke-safe; flip back only with a clean re-export.
+        intro: { enabled: false, useClip: false, targetHeight: 96, clipTimeScale: 0.38, rotX: 0, rotY: Math.PI, rotZ: 0, posX: 0, posY: 0, posZ: 0 },
+        // CLIMB: a single compact creature mesh stretched over the tall heel->head climb reads as a giant
+        // distorted blob (confirmed in playtest) — GLB OFF here; the procedural spine (stone belts + fur) is
+        // the climbed colossus. Flip enabled:true only if we later author a climb-fit GLB.
+        climb: { enabled: false, scale: 300, rotX: 0, rotY: 0, rotZ: 0, posX: 0, posY: 120, posZ: -40 },
       };
 
       // ====================================================================================
@@ -1472,8 +1613,14 @@
       // ====================================================================================
       const WALK = {
         // --- intro cinematic (the standalone hero colossus lumbering across the desert) ---
-        introMarchSpeed: 1.5, // world u/s the beast strides in the intro (slow lumber for its giant scale)
-        introCadence: 1.2,    // intro step cadence (rad/s) driving gait + footfalls (slower = heavier)
+        introMarchSpeed: 1.68, // world u/s the beast strides in the intro (SLOW + ponderous — a giant moves heavily; 20% slower than 2.1). FOOT-SLIDE KNOB: travel/s must ≈ stride
+        //   distance per clip cycle (clip ~3.17s; at clipTimeScale 0.38 a cycle is ~8.3s w/ 2 steps). If the planted
+        //   foot skates FORWARD, lower this; if the feet DRAG/moonwalk, raise it. Eyeball against the rigged walk.
+        introMarchDirX: 1,    // intro march vector X — toward screen-RIGHT (the model is rotY'd to face this)
+        introMarchDirZ: -0.4, // intro march vector Z — slightly AWAY from the camera (into the distance)
+        introFootContacts: [0.1, 0.6], // clip-local phases (0..1) where a foot PLANTS — drives the thud/dust/shake.
+        //   The Mixamo cycle has 2 plants; nudge these to land the camera thud exactly when a foot hits the sand.
+        introCadence: 0.66,   // intro step cadence (rad/s) — SLOW heavy strides (20% slower than 0.82; cycle ~9.5s, 2 ponderous steps)
         introDuration: 12,    // intro length in seconds — the slow exterior dolly/crane fills the whole shot
         // --- gameplay "being-climbed-while-it-walks" feel ---
         swayRate: 0.6,        // gameplay stride cadence: walkPhase advance rate, drives sway/bob/footfall (was 0.95)
@@ -1608,8 +1755,14 @@
         projectiles: [],
         pickups: [],
         effects: [],
-        specials: [],
+        specials: [], // ELEMENT bank (fire/lightning/water/wind from pickups) — Q + keys 1-4
         selectedSpecial: 0,
+        streakBank: [], // STREAK-MILESTONE bank (checkpoints + birthday) — E + the Streak button
+        selectedStreak: 0,
+        streakScrollTimer: null,
+        streakPointer: null,
+        streakPointerMoved: false,
+        streakPointerStartY: 0,
         earnedThresholds: new Set(),
         spawned: 0,
         waveTotal: 3,
@@ -1676,11 +1829,16 @@
         slammerPressure: 0, // late-wave: builds while camping toward spawning a Stonebreaker.
         baseSlammerTimer: 16, // wave 12+: paced baseline Stonebreaker (active-play late pressure, no spam).
         momentum: 0, // kill-flow meter: each kill bumps it, decays in ~2s -> short speed boost.
+        activeDashes: 0, // hard cap on simultaneous committed dashes (stalker lunge / brute charge) for fairness.
+        flankT: 0, // throttle for recomputing surround-slot bearings.
         interactMode: "open", // interact button is the birthday "Open" only; throw axe has its own button.
         tremorTaught: false,
         bursarTaught: false,
         lurkerTaught: false,
         slammerTaught: false,
+        matronTaught: false,
+        serpentTaught: false,
+        weaknessTaught: false,
         shakeTaught: false,
         // Throw axe: a single retrievable axe — throw it, it pierces the path, lands, walk over it to reuse.
         axeReady: true,
@@ -1837,8 +1995,45 @@
         { id: "water", label: "Water", effect: "water", color: 0x3aa6ff, radius: 7.6, damage: 4 },
         { id: "wind", label: "Wind", effect: "wind", color: 0x9be3b0, radius: 9.2, damage: 3.6 },
       ];
+      const ELEMENT_COLOR = { fire: 0xff6a1a, lightning: 0x9be7ff, water: 0x3aa6ff, wind: 0x9be3b0 };
+
+      // Elemental weaknesses: each enemy takes 2x from one element (pick the right element for the foe).
+      // fire = plant/flesh; lightning = casters/metal; water = stone; wind = light, floaty spirits.
+      const WEAKNESS = {
+        crawler: "fire",
+        hugger: "fire",
+        spitter: "fire",
+        stalker: "fire",
+        bursar: "fire",
+        ranged: "lightning",
+        shield: "lightning",
+        wisp: "wind",
+        lurker: "wind",
+        brute: "water",
+        slammer: "water",
+        basic: null,
+      };
+      const BOSS_WEAKNESS = { father: "water", troll: "water", matron: "lightning", serpent: "fire", king: "lightning" };
+      function weaknessOf(enemy) {
+        return enemy.type === "boss" ? BOSS_WEAKNESS[enemy.kind] : WEAKNESS[enemy.type];
+      }
+      // Readable "weak!" feedback (extra element-colored sparks + a one-time teach).
+      function markWeak(enemy, element) {
+        createHitSpark(enemy.pos, ELEMENT_COLOR[element] || 0xffffff, 5);
+        if (!game.weaknessTaught) {
+          game.weaknessTaught = true;
+          showToast("Elemental weakness — that foe takes DOUBLE from this element!", 3.0);
+        }
+      }
+      // Apply an elemental hit with the 2x weakness multiplier + the weak feedback.
+      function elementHit(enemy, baseDmg, element, dir) {
+        const weak = weaknessOf(enemy) === element;
+        if (weak) markWeak(enemy, element);
+        damageEnemy(enemy, baseDmg * (weak ? 2 : 1), dir);
+      }
 
       buildTerrain();
+      initGLBColossus(); // PROGRESSIVE ENHANCEMENT: async-load colossus.glb + swap it in (procedural until/if it lands)
       buildBirthdayStage();
       buildVictoryParty();
       updateActorTransforms();
@@ -1927,13 +2122,29 @@
         game.specialPointer = null;
       });
 
-      interactBtn.addEventListener("click", () => {
-        openBirthdayPresent();
+      // Streak bar: scroll-to-pick + tap-to-cast (mirror of the element bar, for the milestone bank).
+      streakBar.addEventListener("scroll", () => {
+        if (game.streakScrollTimer) window.clearTimeout(game.streakScrollTimer);
+        game.streakScrollTimer = window.setTimeout(selectNearestStreakFromScroll, 90);
+      });
+      streakBar.addEventListener("pointerdown", (event) => {
+        if (!game.streakBank.length) return;
+        game.streakPointer = event.pointerId;
+        game.streakPointerMoved = false;
+        game.streakPointerStartY = event.clientY;
+      });
+      streakBar.addEventListener("pointermove", (event) => {
+        if (event.pointerId !== game.streakPointer) return;
+        if (Math.abs(event.clientY - game.streakPointerStartY) > 8) game.streakPointerMoved = true;
+      });
+      streakBar.addEventListener("pointerup", (event) => {
+        if (event.pointerId !== game.streakPointer) return;
+        if (!game.streakPointerMoved) castSelectedStreak();
+        game.streakPointer = null;
       });
 
-      throwBtn.addEventListener("click", (event) => {
-        event.preventDefault();
-        throwAxe();
+      interactBtn.addEventListener("click", () => {
+        openBirthdayPresent();
       });
 
       logBtn.addEventListener("click", () => {
@@ -2018,7 +2229,12 @@
           attackBtn.classList.add("charging");
         }
         if (event.key.toLowerCase() === "q") castSelectedSpecial();
-        if (event.key.toLowerCase() === "e") openBirthdayPresent();
+        // 1/2/3/4 directly cast a banked Fire/Lightning/Water/Wind so you can pick the right element.
+        if (event.key === "1") castElement("fire");
+        if (event.key === "2") castElement("lightning");
+        if (event.key === "3") castElement("water");
+        if (event.key === "4") castElement("wind");
+        if (event.key.toLowerCase() === "e") castSelectedStreak(); // E casts the selected milestone (present uses the Open button)
         if (event.key.toLowerCase() === "p") setRetro(!retro.enabled);
         if (event.key === "Escape") togglePause();
       });
@@ -2115,12 +2331,12 @@
           updateWave(dt);
           updatePendingSpawns(dt);
           updateEnemies(dt);
+          separateEnemies(dt); // anti-bunching pass after movement
           updateProjectiles(dt);
           updatePickups(dt);
           updateEffects(dt);
           updateZones(dt);
           updateBirthdayInteract();
-          updateThrowAxe();
           updateHud();
         } else {
           animateIdle(realDt);
@@ -2336,6 +2552,7 @@
           speedBoost: round(game.speedBoost, 3),
           kidHunt: round(game.kidHunt, 3),
           specials: game.specials.map((special) => special.label),
+          streakBank: game.streakBank.map((special) => special.label),
           player: player
             ? {
                 x: round(player.pos.x, 3),
@@ -2365,7 +2582,7 @@
 
       function exportGameplayLogObject() {
         return {
-          version: "2026-06-06q-v4.1-bosses-monsters",
+          version: "2026-06-07d-v4.5-hud-fix",
           exportedAt: new Date().toISOString(),
           userAgent: navigator.userAgent,
           viewport: { width: window.innerWidth, height: window.innerHeight, dpr: window.devicePixelRatio },
@@ -2691,7 +2908,118 @@
         }
       }
 
+      // --- Mob-movement-AI helpers (module scratch vectors avoid per-frame allocations) ---
+      const _slotV = new THREE.Vector2();
+      const _aiAnchor = new THREE.Vector2();
+
+      // Steer toward an assigned SURROUND slot (a bearing around the player) instead of the player's
+      // exact point — so a pack fans out and boxes you in rather than single-filing. Straight-in up close.
+      function slotSteer(enemy, dir, distance, speed) {
+        const a = enemy.slotAngle;
+        const anchor = _aiAnchor
+          .set(player.pos.x + Math.cos(a) * 1.5, player.pos.y + Math.sin(a) * 1.5)
+          .sub(enemy.pos);
+        if (anchor.lengthSq() < 1e-4) anchor.copy(dir);
+        anchor.normalize();
+        const blend = THREE.MathUtils.clamp((distance - 2.0) / 3.0, 0, 1) * 0.6; // hard straight-in inside 2u
+        return _slotV.copy(dir).lerp(anchor, blend).normalize().multiplyScalar(speed);
+      }
+
+      // Hand out evenly-spaced surround bearings to the swarm (throttled) so they approach from many sides.
+      function assignFlankSlots(dt) {
+        game.flankT -= dt;
+        if (game.flankT > 0) return;
+        game.flankT = 0.3;
+        const ring = game.enemies.filter(
+          (e) => !e.dead && (e.type === "basic" || e.type === "crawler" || e.type === "hugger"),
+        );
+        const n = Math.max(1, ring.length);
+        ring.sort((a, b) => a.id - b.id);
+        for (let k = 0; k < ring.length; k += 1) ring[k].slotAngle = (k / n) * Math.PI * 2;
+      }
+
+      // Anti-bunching: push overlapping enemies apart so they don't stack on one pixel. O(n^2), n<=22.
+      function separateEnemies(dt) {
+        const es = game.enemies;
+        const heavy = (e) =>
+          e.type === "boss" || e.type === "brute" || e.charge > 0 || e.lunge > 0 || e.fuse > 0 || e.stunned > 0;
+        for (let i = 0; i < es.length; i += 1) {
+          const a = es[i];
+          if (a.dead) continue;
+          for (let j = i + 1; j < es.length; j += 1) {
+            const b = es[j];
+            if (b.dead) continue;
+            const dx = b.pos.x - a.pos.x;
+            const dy = b.pos.y - a.pos.y;
+            const d = Math.hypot(dx, dy) || 0.001;
+            const minD = (a.radius + b.radius) * 0.9;
+            if (d >= minD) continue;
+            const push = (minD - d) * 0.5 * Math.min(1, dt * 15);
+            const nx = (dx / d) * push;
+            const ny = (dy / d) * push;
+            if (!heavy(a)) {
+              a.pos.x -= nx;
+              a.pos.y -= ny;
+            }
+            if (!heavy(b)) {
+              b.pos.x += nx;
+              b.pos.y += ny;
+            }
+          }
+        }
+        for (const e of es) {
+          if (e.dead) continue;
+          e.pos.x = THREE.MathUtils.clamp(e.pos.x, -HALF_W, HALF_W);
+          e.pos.y = THREE.MathUtils.clamp(e.pos.y, game.stageCenter - HALF_H, game.stageCenter + HALF_H);
+        }
+      }
+
+      // A telegraph ring flagged so the EFFECT_CAP cull never drops it (an invisible lunge/charge is unfair).
+      function createTellRing(pos, color, radius) {
+        createRing(pos, color, radius);
+        const last = game.effects[game.effects.length - 1];
+        if (last) last.protected = true;
+      }
+
+      // Release a committed dash on death/stun so the global activeDashes fairness cap can't leak.
+      // Only mobs (stalker/brute) ever increment the counter — the Troll boss reuses charge fields but
+      // never claims a slot, so gate the decrement to non-bosses (else a dying Troll wrongly frees a slot).
+      function clearDash(enemy) {
+        if (enemy.type !== "boss" && (enemy.lunge > 0 || enemy.lungeTel > 0 || enemy.charge > 0 || enemy.chargeTel > 0)) {
+          game.activeDashes = Math.max(0, game.activeDashes - 1);
+        }
+        enemy.lunge = 0;
+        enemy.lungeTel = 0;
+        enemy.charge = 0;
+        enemy.chargeTel = 0;
+      }
+
+      // --- Boss attack helpers (telegraphed, dodgeable; all discs tagged ownerId so they die with the boss) ---
+      function bossSlam(enemy, count, killR, lead) {
+        for (let k = 0; k < count; k += 1) {
+          const off = new THREE.Vector2(rand(-1, 1), rand(-1, 1));
+          if (off.lengthSq() < 0.01) off.set(0, 1);
+          const sp = player.pos.clone().addScaledVector(off.normalize(), 1.0 + Math.random() * 0.9);
+          sp.x = THREE.MathUtils.clamp(sp.x, -HALF_W + killR, HALF_W - killR);
+          sp.y = THREE.MathUtils.clamp(sp.y, game.stageCenter - HALF_H + killR, game.stageCenter + HALF_H - killR);
+          createTremorDisc(sp, killR, lead, enemy.id);
+        }
+      }
+      function bossSlamAt(enemy, center, killR, lead) {
+        const sp = center.clone();
+        sp.x = THREE.MathUtils.clamp(sp.x, -HALF_W + killR, HALF_W - killR);
+        sp.y = THREE.MathUtils.clamp(sp.y, game.stageCenter - HALF_H + killR, game.stageCenter + HALF_H - killR);
+        createTremorDisc(sp, killR, lead, enemy.id);
+      }
+      function bossVolley(enemy, shots) {
+        const half = (shots - 1) / 2;
+        const spacing = shots > 3 ? 0.25 : 0.32;
+        for (let s = 0; s < shots; s += 1) spawnProjectile(enemy, (s - half) * spacing);
+        addTrauma(0.2);
+      }
+
       function updateEnemies(dt) {
+        assignFlankSlots(dt);
         for (let i = game.enemies.length - 1; i >= 0; i -= 1) {
           const enemy = game.enemies[i];
           if (enemy.dead) {
@@ -2699,6 +3027,7 @@
             continue;
           }
           if (enemy.stunned > 0) {
+            clearDash(enemy); // a stun interrupts any committed dash (releases the fairness-cap slot)
             enemy.stunned -= dt;
             enemy.group.rotation.z += dt * 2;
             continue;
@@ -2707,7 +3036,7 @@
           if (enemy.rooted > 0) enemy.rooted -= dt;
           if (enemy.burn > 0) {
             enemy.burn -= dt;
-            enemy.hp -= dt * 3.6;
+            enemy.hp -= dt * 3.6 * (weaknessOf(enemy) === "fire" ? 2 : 1); // fire-weak foes burn 2x (matches other elements)
             if (Math.random() < dt * 6) createHitSpark(enemy.pos, 0xff6a1a, 1);
             if (enemy.hp <= 0) {
               killEnemy(enemy, new THREE.Vector2(0, 1));
@@ -2723,6 +3052,8 @@
           const speed = enemy.speed * slow * root;
 
           const isShooter = enemy.type === "ranged" || enemy.type === "wisp" || enemy.type === "spitter";
+          const move = new THREE.Vector2();
+          const perp = new THREE.Vector2(-dir.y, dir.x);
           if (isShooter && distance < 5.7) {
             enemy.pos.addScaledVector(dir, -speed * dt * 0.32);
             if (enemy.windup > 0) {
@@ -2732,9 +3063,16 @@
               enemy.flash = 1;
               if (enemy.windup <= 0) spawnProjectile(enemy);
             } else {
+              // Strafe laterally while reloading so shots arrive from off the arc-center (plant to fire).
+              enemy.pos.addScaledVector(perp, enemy.strafeDir * speed * dt * 0.65);
+              enemy.strafeFlip -= dt;
+              if (enemy.strafeFlip <= 0) {
+                enemy.strafeFlip = 1.4 + Math.random() * 1.2;
+                enemy.strafeDir *= -1;
+              }
+              if (Math.abs(enemy.pos.x) > HALF_W - 0.6) enemy.strafeDir = enemy.pos.x > 0 ? -1 : 1;
               enemy.cooldown -= dt;
               if (enemy.cooldown <= 0) {
-                // Cadence trimmed alongside the new tell so readability rises without dropping shot pressure.
                 enemy.cooldown =
                   enemy.type === "wisp" ? 1.5 + Math.random() * 0.7 : 2.1 + Math.random() * 0.9;
                 enemy.windup = 0.45;
@@ -2743,22 +3081,112 @@
               }
             }
           } else if (isShooter && enemy.windup > 0) {
-            // Stranded mid-charge (player ran out of range): drop it so re-entry must re-telegraph.
             enemy.windup = 0;
             enemy.cooldown = 0.3 + Math.random() * 0.4;
             enemy.pos.addScaledVector(dir, speed * dt);
+          } else if (enemy.type === "boss" && enemy.charge > 0) {
+            enemy.pos.addScaledVector(enemy.chargeDir, 13 * dt); // Ribcage Troll committed charge
+          } else if (enemy.type === "boss" && enemy.intangible > 0) {
+            // Root Serpent submerged — holds position underground (handled in the boss switch).
           } else if (enemy.type === "lurker" && enemy.blinkTel > 0) {
-            // Frozen mid-blink while the destination ring shows where it will reappear.
-            enemy.flash = 1;
+            enemy.flash = 1; // frozen mid-blink while the destination ring shows
           } else if (enemy.type === "slammer") {
-            // Artillery: holds the back line. Backs off if you close, plods up if you run.
             if (distance < 6.5) enemy.pos.addScaledVector(dir, -speed * dt * 0.5);
             else enemy.pos.addScaledVector(dir, speed * dt * 0.5);
-            // Keep it on-stage so knockback/back-off can't shove it off-screen (it must stay huntable).
             enemy.pos.x = THREE.MathUtils.clamp(enemy.pos.x, -HALF_W, HALF_W);
             enemy.pos.y = THREE.MathUtils.clamp(enemy.pos.y, game.stageCenter - HALF_H, game.stageCenter + HALF_H);
           } else {
-            enemy.pos.addScaledVector(dir, speed * dt);
+            // Per-archetype movement intelligence (no more pure beeline). Each case sets `move`.
+            switch (enemy.type) {
+              case "crawler": {
+                // Skitters in an S then commits straight inside axe range so the tap still lands clean.
+                enemy.weaveT += dt;
+                const w = Math.sin(enemy.weaveT * 4.5 + enemy.id * 1.7);
+                const commit = Math.min(1, distance / 2.2);
+                move.copy(dir).multiplyScalar(speed * 0.85).addScaledVector(perp, w * speed * 0.8 * commit);
+                break;
+              }
+              case "stalker": {
+                // Orbits to your flank, then a telegraphed committed lunge along a LOCKED line.
+                if (enemy.lunge > 0) {
+                  move.copy(enemy.lungeDir).multiplyScalar(Math.min(speed * 1.9, 6.3));
+                  enemy.lunge -= dt;
+                  if (enemy.lunge <= 0) {
+                    enemy.lunge = 0;
+                    enemy.stunned = 0.3;
+                    game.activeDashes = Math.max(0, game.activeDashes - 1);
+                  }
+                } else if (enemy.lungeTel > 0) {
+                  move.copy(perp).multiplyScalar(enemy.flankSide * speed * 0.2); // dir already locked
+                  enemy.flash = 1;
+                  enemy.lungeTel -= dt;
+                  if (enemy.lungeTel <= 0) enemy.lunge = 0.4;
+                } else {
+                  const behindness = -enemy.pos.clone().sub(player.pos).normalize().dot(player.facing);
+                  if ((behindness > 0.3 || distance < 2.2) && game.activeDashes < 2) {
+                    enemy.lungeDir.copy(dir); // SNAPSHOT at telegraph start so the line is pre-readable
+                    enemy.lungeTel = 0.3;
+                    game.activeDashes += 1;
+                    enemy.flash = 1;
+                    createTellRing(enemy.pos, 0xff5a3a, enemy.radius * 2.2);
+                    blip({ type: "square", freq: 220, dur: 0.07, gain: 0.06 });
+                  } else {
+                    move.copy(perp).multiplyScalar(enemy.flankSide * speed * 1.05).addScaledVector(dir, speed * 0.3);
+                  }
+                }
+                break;
+              }
+              case "brute": {
+                const chargeSpeed = 6.3 * root * slow; // SLOW/root actually slow a charging brute
+                if (enemy.charge > 0) {
+                  move.copy(enemy.chargeDir).multiplyScalar(chargeSpeed);
+                  enemy.charge -= dt;
+                  if (enemy.charge <= 0) {
+                    enemy.charge = 0;
+                    enemy.stunned = 0.45;
+                    game.activeDashes = Math.max(0, game.activeDashes - 1);
+                    addTrauma(0.2);
+                  }
+                } else if (enemy.chargeTel > 0) {
+                  move.copy(dir).multiplyScalar(-speed * 0.5); // backstep/rear-up tell
+                  enemy.flash = 1;
+                  enemy.chargeTel -= dt;
+                  if (enemy.chargeTel <= 0) enemy.charge = 0.5;
+                } else {
+                  enemy.chargeCd -= dt;
+                  const ahead = enemy.pos.clone().sub(player.pos).normalize().dot(player.facing);
+                  if (enemy.chargeCd <= 0 && distance > 2.8 && distance < 6.0 && ahead > -0.2 && game.activeDashes < 2) {
+                    enemy.chargeCd = 4.5 + Math.random() * 2;
+                    enemy.chargeDir.copy(dir); // locked at telegraph start
+                    enemy.chargeTel = 0.5;
+                    game.activeDashes += 1;
+                    createTellRing(enemy.pos, 0xff5a3a, enemy.radius * 2.4);
+                    blip({ type: "sine", freq: 120, dur: 0.12, gain: 0.08 });
+                  } else {
+                    move.copy(dir).multiplyScalar(speed);
+                  }
+                }
+                break;
+              }
+              case "hugger": {
+                // Boxes you in from a spread bearing (slot) + residual offset, then closes at axe range.
+                const s = slotSteer(enemy, dir, distance, speed);
+                const g = THREE.MathUtils.clamp((distance - 1.6) / 3.5, 0, 1) * enemy.spreadAngle;
+                const ca = Math.cos(g);
+                const sa = Math.sin(g);
+                move.set(s.x * ca - s.y * sa, s.x * sa + s.y * ca);
+                break;
+              }
+              case "bursar":
+                move.copy(dir).multiplyScalar(speed * 1.1); // rushes in to detonate
+                break;
+              case "basic":
+                move.copy(slotSteer(enemy, dir, distance, speed)); // fans into a surround slot
+                break;
+              default:
+                move.copy(dir).multiplyScalar(speed); // lurker (between blinks), shield, fallback
+            }
+            enemy.pos.addScaledVector(move, dt);
           }
 
           if (enemy.type === "slammer") {
@@ -2782,34 +3210,175 @@
           }
 
           if (enemy.type === "boss") {
+            const lowHp = enemy.hp < enemy.maxHp * 0.4;
+            // Shared telegraphed volley (count set per kind/phase via enemy.volleyShots).
             if (enemy.windup > 0) {
               enemy.windup -= dt;
               enemy.flash = 1;
-              if (enemy.windup <= 0) {
-                for (let s = -1; s <= 1; s += 1) spawnProjectile(enemy, s * 0.32);
-                addTrauma(0.25);
-              }
-            } else {
-              enemy.cooldown -= dt;
-              if (enemy.cooldown <= 0) {
-                enemy.cooldown = 3.2 + Math.random() * 1.6;
-                enemy.windup = 0.5;
-                createRing(enemy.pos, 0xffb030, enemy.radius * 1.4);
-              }
+              if (enemy.windup <= 0) bossVolley(enemy, enemy.volleyShots || 3);
             }
-            // Boss ground-slam on its own cadence: two telegraphed discs near the player so the fight
-            // is "dodge + engage", not just deflect-its-shots. Cancelled if the boss dies (killEnemy).
-            enemy.slamCd = (enemy.slamCd ?? 4) - dt;
-            if (enemy.slamCd <= 0) {
-              enemy.slamCd = 5.5 + Math.random() * 2;
-              for (let k = 0; k < 2; k += 1) {
-                const off = new THREE.Vector2(rand(-1, 1), rand(-1, 1));
-                if (off.lengthSq() < 0.01) off.set(0, 1);
-                const sp = player.pos.clone().addScaledVector(off.normalize(), 1.0 + Math.random() * 0.9);
-                const killR = 2.0;
-                sp.x = THREE.MathUtils.clamp(sp.x, -HALF_W + killR, HALF_W - killR);
-                sp.y = THREE.MathUtils.clamp(sp.y, game.stageCenter - HALF_H + killR, game.stageCenter + HALF_H - killR);
-                createTremorDisc(sp, killR, 1.3, enemy.id);
+            switch (enemy.kind) {
+              case "father": {
+                // Pure fundamentals: ONE slow boulder + a generous twin ground-slam.
+                if (enemy.windup <= 0) {
+                  enemy.cooldown -= dt;
+                  if (enemy.cooldown <= 0) {
+                    enemy.cooldown = 3.5 + Math.random() * 1.5;
+                    enemy.windup = 0.6;
+                    enemy.volleyShots = 1; // a single, easily-sidestepped boulder
+                    createRing(enemy.pos, 0xffb030, enemy.radius * 1.4);
+                  }
+                }
+                const fast = enemy.hp < enemy.maxHp * 0.35;
+                enemy.slamCd = (enemy.slamCd ?? 5.5) - dt;
+                if (enemy.slamCd <= 0) {
+                  enemy.slamCd = fast ? 3.8 : 5.5 + Math.random() * 2;
+                  bossSlam(enemy, 2, 2.0, fast ? 1.15 : 1.35);
+                }
+                break;
+              }
+              case "troll": {
+                // Goring Charge: rear-up + a painted lane, dash (movement override), overshoot self-stun.
+                if (enemy.charge > 0) {
+                  enemy.charge -= dt;
+                  enemy.flash = 1;
+                  const atWall =
+                    Math.abs(enemy.pos.x) >= HALF_W - 0.1 ||
+                    enemy.pos.y >= game.stageCenter + HALF_H - 0.1 ||
+                    enemy.pos.y <= game.stageCenter - HALF_H + 0.1;
+                  if (enemy.charge <= 0 || atWall) {
+                    enemy.charge = 0;
+                    enemy.stunned = 1.2; // wide-open recovery window
+                    addTrauma(0.3);
+                    bossSlamAt(enemy, enemy.pos.clone(), 1.6, 1.3); // recover stomp under itself
+                  }
+                } else if (enemy.chargeTel > 0) {
+                  enemy.chargeTel -= dt;
+                  enemy.flash = 1;
+                  if (enemy.chargeTel <= 0) enemy.charge = 0.55;
+                } else {
+                  enemy.chargeCd = (enemy.chargeCd ?? 4.5) - dt;
+                  if (enemy.chargeCd <= 0) {
+                    enemy.chargeCd = lowHp ? 2.2 : 4.5 + Math.random() * 1.5;
+                    enemy.chargeDir.copy(dir); // lane locked at rear-up
+                    enemy.chargeTel = 0.8;
+                    for (let k = 1; k <= 4; k += 1) {
+                      const lp = enemy.pos.clone().addScaledVector(enemy.chargeDir, k * 1.4);
+                      lp.x = THREE.MathUtils.clamp(lp.x, -HALF_W + 1.3, HALF_W - 1.3);
+                      lp.y = THREE.MathUtils.clamp(lp.y, game.stageCenter - HALF_H + 1.3, game.stageCenter + HALF_H - 1.3);
+                      createTremorDisc(lp, 1.3, 0.95, enemy.id);
+                    }
+                  }
+                }
+                break;
+              }
+              case "matron": {
+                // Kiting shooter-queen: fan volley (3 -> 5 low HP) + raises adds + an occasional slam.
+                if (distance < 6) enemy.pos.addScaledVector(dir, -speed * dt * 1.2); // kite back
+                if (enemy.windup <= 0) {
+                  enemy.cooldown -= dt;
+                  if (enemy.cooldown <= 0) {
+                    enemy.cooldown = 3.0 + Math.random() * 1.5;
+                    enemy.windup = 0.5;
+                    enemy.volleyShots = lowHp ? 5 : 3;
+                    createRing(enemy.pos, 0xffb030, enemy.radius * 1.4);
+                  }
+                }
+                enemy.summonCd = (enemy.summonCd ?? 7) - dt;
+                const nonBoss =
+                  game.enemies.filter((e) => !e.dead && e.type !== "boss").length + game.pendingSpawns.length;
+                if (enemy.summonCd <= 0 && nonBoss < 6) {
+                  enemy.summonCd = lowHp ? 5 : 7 + Math.random() * 2;
+                  spawnEnemy("crawler");
+                  spawnEnemy("crawler");
+                  if (!game.matronTaught) {
+                    game.matronTaught = true;
+                    showToast("The Matron raises the dead — clear them!", 2.6);
+                  }
+                }
+                enemy.slamCd = (enemy.slamCd ?? 6) - dt;
+                if (enemy.slamCd <= 0) {
+                  enemy.slamCd = 6 + Math.random() * 2;
+                  bossSlam(enemy, 1, 1.8, 1.4);
+                }
+                break;
+              }
+              case "serpent": {
+                // Burrow & Erupt: submerge (intangible), reappear in your lane, erupt a slam there.
+                if (enemy.intangible > 0) {
+                  enemy.intangible -= dt;
+                  if (enemy.intangible <= 0) {
+                    enemy.intangible = 0;
+                    enemy.pos.copy(enemy.burrowTo);
+                    bossSlamAt(enemy, enemy.burrowTo, 2.0, 0.9);
+                  }
+                } else {
+                  enemy.burrowCd = (enemy.burrowCd ?? 6) - dt;
+                  if (enemy.burrowCd <= 0) {
+                    enemy.burrowCd = enemy.hp < enemy.maxHp * 0.35 ? 4.2 : 6;
+                    const lead = (input.move.lengthSq() > 0.09 ? input.move.clone() : player.facing.clone()).normalize();
+                    const dest = player.pos.clone().addScaledVector(lead, 2.5);
+                    dest.x = THREE.MathUtils.clamp(dest.x, -HALF_W, HALF_W);
+                    dest.y = THREE.MathUtils.clamp(dest.y, game.stageCenter - HALF_H, game.stageCenter + HALF_H);
+                    enemy.burrowTo.copy(dest);
+                    enemy.intangible = 1.2;
+                    createRing(enemy.pos, 0x6a3b1a, 1.6); // dive
+                    createRing(dest, 0x9bd36a, 1.6); // green emergence telegraph
+                    if (!game.serpentTaught) {
+                      game.serpentTaught = true;
+                      showToast("The Serpent burrows — it erupts where you're headed!", 2.8);
+                    }
+                  }
+                }
+                break;
+              }
+              case "king": {
+                // Phase 1: shielded turtle (charge to break). Phase 2 (broken): enraged volume.
+                if (enemy.broken && !enemy.brokenToast) {
+                  enemy.brokenToast = true;
+                  showToast("The Shield Wall King is broken — UNLEASH!", 2.6);
+                }
+                const cadence = enemy.broken ? 0.66 : 1;
+                if (enemy.windup <= 0) {
+                  enemy.cooldown -= dt;
+                  if (enemy.cooldown <= 0) {
+                    enemy.cooldown = (3.0 + Math.random() * 1.4) * cadence;
+                    enemy.windup = 0.5;
+                    enemy.volleyShots = enemy.broken ? 5 : 3;
+                    createRing(enemy.pos, 0xffb030, enemy.radius * 1.4);
+                  }
+                }
+                enemy.slamCd = (enemy.slamCd ?? 5) - dt;
+                if (enemy.slamCd <= 0) {
+                  enemy.slamCd = (5 + Math.random() * 1.5) * cadence;
+                  bossSlam(enemy, enemy.broken ? 3 : 2, 2.0, 1.3);
+                }
+                if (enemy.broken) {
+                  enemy.summonCd = (enemy.summonCd ?? 9) - dt;
+                  const nonBoss =
+                    game.enemies.filter((e) => !e.dead && e.type !== "boss").length + game.pendingSpawns.length;
+                  if (enemy.summonCd <= 0 && nonBoss < 6) {
+                    enemy.summonCd = 9 + Math.random() * 2;
+                    spawnEnemy("shield");
+                  }
+                }
+                break;
+              }
+              default: {
+                if (enemy.windup <= 0) {
+                  enemy.cooldown -= dt;
+                  if (enemy.cooldown <= 0) {
+                    enemy.cooldown = 3.2 + Math.random() * 1.6;
+                    enemy.windup = 0.5;
+                    enemy.volleyShots = 3;
+                    createRing(enemy.pos, 0xffb030, enemy.radius * 1.4);
+                  }
+                }
+                enemy.slamCd = (enemy.slamCd ?? 5.5) - dt;
+                if (enemy.slamCd <= 0) {
+                  enemy.slamCd = 5.5 + Math.random() * 2;
+                  bossSlam(enemy, 2, 2.0, 1.3);
+                }
               }
             }
           }
@@ -2898,7 +3467,7 @@
           }
 
           const contactDistance = enemy.radius + player.radius;
-          if (distance < contactDistance) {
+          if (distance < contactDistance && !enemy.intangible) {
             player.slow = 0.36;
             const damage = enemy.contactDamage * dt * (enemy.type === "hugger" ? 0.15 : 1);
             const now = performance.now() / 1000;
@@ -2922,10 +3491,14 @@
             enemy.pos.addScaledVector(enemy.knockVel, dt);
             enemy.knockVel.multiplyScalar(Math.exp(-12 * dt));
           }
-          enemy.group.position.set(enemy.pos.x, enemy.pos.y, surfaceZ(enemy.pos.x, enemy.pos.y) + 0.03);
+          // Submerged Serpent sinks below the surface (reads as "can't be hit") and the actor follows.
+          const sink = enemy.intangible > 0 ? -0.9 : 0;
+          enemy.group.position.set(enemy.pos.x, enemy.pos.y, surfaceZ(enemy.pos.x, enemy.pos.y) + 0.03 + sink);
           enemy.group.rotation.z = facingToRotation(dir);
           enemy.group.scale.setScalar(
-            (enemy.fuse > 0 ? 1 + (enemy.fuseSwell || 0) * 0.55 : 1) * (enemy.flash > 0 ? 1.08 : 1),
+            (enemy.intangible > 0 ? 0.4 : 1) *
+              (enemy.fuse > 0 ? 1 + (enemy.fuseSwell || 0) * 0.55 : 1) *
+              (enemy.flash > 0 ? 1.08 : 1),
           );
           enemy.flash = Math.max(0, enemy.flash - dt * 5);
         }
@@ -2944,7 +3517,7 @@
           }
 
           if (projectile.owner !== "player" && projectile.pos.distanceTo(player.pos) < 0.55) {
-            damagePlayer(9 + game.wave * 0.9, { source: "projectile" });
+            damagePlayer(14 + game.wave * 1.4, { source: "projectile" }); // log-9: enemies did too little dmg
             if (game.invincible <= 0 && game.godMode <= 0) damageStreak({ source: "projectile" });
             removeProjectile(i);
             continue;
@@ -2954,7 +3527,7 @@
           if (projectile.owner === "player" && projectile.kind === "axe") {
             projectile.mesh.rotation.z += dt * 22;
             for (const e of game.enemies) {
-              if (e.dead || projectile.hitSet.has(e)) continue;
+              if (e.dead || e.intangible > 0 || projectile.hitSet.has(e)) continue; // can't hit a submerged Serpent
               if (projectile.pos.distanceTo(e.pos) < e.radius + 0.45) {
                 projectile.hitSet.add(e);
                 const heavy = e.type === "boss" || e.type === "brute";
@@ -3029,17 +3602,23 @@
 
       function updateEffects(dt) {
         if (game.effects.length > EFFECT_CAP) {
-          const extra = game.effects.length - EFFECT_CAP;
-          for (let k = 0; k < extra; k += 1) {
+          const target = game.effects.length - EFFECT_CAP;
+          let removed = 0;
+          for (let k = 0; k < game.effects.length && removed < target; ) {
             const old = game.effects[k];
+            if (old.protected) {
+              k += 1; // never cull a load-bearing telegraph ring (an invisible lunge/charge is unfair)
+              continue;
+            }
             groups.effects.remove(old.mesh);
             disposeObject(old.mesh);
             if (old.chain) {
               groups.effects.remove(old.chain);
               disposeObject(old.chain);
             }
+            game.effects.splice(k, 1);
+            removed += 1;
           }
-          game.effects.splice(0, extra);
         }
         for (let i = game.effects.length - 1; i >= 0; i -= 1) {
           const effect = game.effects[i];
@@ -3143,30 +3722,6 @@
         game.axeReady = true;
       }
 
-      function updateThrowAxe() {
-        // Retrieve a landed axe by walking over it.
-        if (game.axeGround) {
-          game.axeGround.mesh.position.z = 0.5 + Math.sin(performance.now() * 0.005) * 0.08;
-          game.axeGround.mesh.rotation.z += 0.03;
-          if (player.pos.distanceTo(game.axeGround.pos) < 0.95) {
-            groups.effects.remove(game.axeGround.mesh);
-            disposeObject(game.axeGround.mesh);
-            game.axeGround = null;
-            game.axeReady = true;
-            spawnFloater(player.pos, "AXE BACK", { color: 0xd4c1a1, size: 15, life: 0.6, rise: 20 });
-            blip({ type: "square", freq: 620, dur: 0.05, gain: 0.08 });
-          }
-        }
-        // Button state (own button, separate from the birthday "Open").
-        if (game.state === "wave") {
-          throwBtn.classList.add("visible");
-          throwBtn.classList.toggle("out", !game.axeReady);
-          throwBtn.disabled = !game.axeReady;
-          throwBtn.textContent = game.axeReady ? "Throw" : "Axe out";
-        } else {
-          throwBtn.classList.remove("visible");
-        }
-      }
 
       function animateIdle(dt) {
         const t = performance.now() / 1000;
@@ -3207,7 +3762,7 @@
           let bd = 1e9;
           const f0 = player.facing.clone().normalize();
           for (const e of game.enemies) {
-            if (e.dead) continue;
+            if (e.dead || e.intangible) continue;
             const v = e.pos.clone().sub(player.pos);
             const d = v.length();
             if (d < 0.3 || d > 3.4) continue;
@@ -3237,6 +3792,7 @@
         const hits = [];
         const candidates = [];
         for (const enemy of game.enemies) {
+          if (enemy.dead || enemy.intangible) continue; // can't hit a submerged Serpent
           const vector = enemy.pos.clone().sub(origin);
           const distance = vector.length();
           const unit = distance > 0.0001 ? vector.clone().multiplyScalar(1 / distance) : facing.clone();
@@ -3378,7 +3934,7 @@
           game.invincible <= 0 &&
           game.godMode <= 0
         ) {
-          damagePlayer(20 + game.wave * 1.1, { source: "bursar" });
+          damagePlayer(28 + game.wave * 1.6, { source: "bursar" });
           damageStreak({ source: "bursar" });
           game.stagger = Math.max(game.stagger, 0.2);
         }
@@ -3410,6 +3966,7 @@
         groups.actors.remove(enemy.group);
         disposeObject(enemy.group);
         if (enemy.type === "slammer" || enemy.type === "boss") cancelSlammerTremors(enemy.id); // its attack dies when it dies
+        clearDash(enemy); // release the activeDashes fairness slot if it died mid-lunge/charge
         game.kills += 1;
         game.waveKills += 1;
         game.streak += 1;
@@ -3670,7 +4227,6 @@
           `Santiago reached Wave ${game.wave} with ${game.kills} kills. The gods demand another run.`;
         overlay.classList.remove("hidden");
         interactBtn.classList.remove("visible");
-        throwBtn.classList.remove("visible");
       }
 
       function resetRun() {
@@ -3701,6 +4257,8 @@
         game.earnedThresholds = new Set();
         game.specials = [];
         game.selectedSpecial = 0;
+        game.streakBank = [];
+        game.selectedStreak = 0;
         game.birthdayWave = 3 + Math.floor(Math.random() * 3);
         game.birthdayOpened = false;
         game.victoryReached = false;
@@ -3783,6 +4341,8 @@
         game.slammerPressure = 0;
         game.baseSlammerTimer = 16;
         game.momentum = 0;
+        game.activeDashes = 0; // must reset, or dying mid-lunge/charge wedges the dash cap for the next run
+        game.flankT = 0;
         game.shakeTimer = 6 + Math.random() * 6;
         game.frenzySpawns = 0;
         game.frenzyTimer = 0;
@@ -3791,6 +4351,9 @@
         game.bursarTaught = false;
         game.lurkerTaught = false;
         game.slammerTaught = false;
+        game.matronTaught = false;
+        game.serpentTaught = false;
+        game.weaknessTaught = false;
         game.shakeTaught = false;
         game.axeTaught = false;
         resetWorldTheme();
@@ -3989,8 +4552,9 @@
       }
 
       function deflectProjectile(projectile) {
-        const target = projectile.shooter && !projectile.shooter.dead ? projectile.shooter : nearestEnemy(projectile.pos, 99);
-        if (!target) return;
+        let target = projectile.shooter && !projectile.shooter.dead ? projectile.shooter : nearestEnemy(projectile.pos, 99);
+        if (target && target.intangible > 0) target = nearestEnemy(projectile.pos, 99); // don't home a submerged Serpent
+        if (!target || target.intangible > 0) return;
         projectile.owner = "player";
         projectile.target = target;
         projectile.vel = target.pos.clone().sub(projectile.pos).normalize().multiplyScalar(8.5);
@@ -4190,80 +4754,126 @@
         }
       }
 
+      function isElementEffect(effect) {
+        return effect === "fire" || effect === "lightning" || effect === "water" || effect === "wind";
+      }
+
+      // Element specials (from pickups) go to the ELEMENT bank (Q / 1-4); everything else (streak
+      // checkpoints + birthday present) goes to the STREAK bank (E / Streak button).
       function addSpecial(special) {
-        game.specials.push(special);
-        game.selectedSpecial = game.specials.length - 1;
+        if (isElementEffect(special.effect)) {
+          game.specials.push(special);
+          game.selectedSpecial = game.specials.length - 1;
+        } else {
+          game.streakBank.push(special);
+          game.selectedStreak = game.streakBank.length - 1;
+        }
         logEvent("special-add", { label: special.label, effect: special.effect, threshold: special.threshold || null });
         renderSpecialBar({ instant: true });
       }
 
       function renderSpecialBar({ instant = false } = {}) {
-        specialBar.innerHTML = "";
-        specialBar.classList.toggle("visible", game.specials.length > 0);
-        specialBar.classList.toggle("cast-ready", game.specials.length > 0);
-        specialBar.classList.remove("empty");
-        if (specialBtn) {
-          specialBtn.disabled = game.specials.length === 0;
-          specialBtn.textContent = game.specials.length
-            ? game.specials[game.selectedSpecial]?.label || "Skill"
-            : "Skill";
-        }
-        if (!game.specials.length) {
-          specialBar.scrollTop = 0;
+        renderBar(specialBar, game.specials, game.selectedSpecial, instant);
+        renderBar(streakBar, game.streakBank, game.selectedStreak, instant);
+        if (elemCount) elemCount.textContent = game.specials.length ? `×${game.specials.length}` : "";
+        if (streakCount) streakCount.textContent = game.streakBank.length ? `×${game.streakBank.length}` : "";
+      }
+
+      function renderBar(bar, list, selectedIndex, instant) {
+        bar.innerHTML = "";
+        bar.classList.toggle("visible", list.length > 0);
+        bar.classList.toggle("cast-ready", list.length > 0);
+        bar.classList.remove("empty");
+        if (!list.length) {
+          bar.scrollTop = 0;
           return;
         }
-        game.specials.forEach((special, index) => {
+        list.forEach((special, index) => {
           const button = document.createElement("button");
-          button.className = `special-chip${index === game.selectedSpecial ? " selected" : ""}`;
+          button.className = `special-chip${index === selectedIndex ? " selected" : ""}`;
           button.type = "button";
           button.textContent = special.label;
-          specialBar.appendChild(button);
+          bar.appendChild(button);
         });
-        syncSpecialBarScroll(instant);
+        syncBarScroll(bar, instant);
       }
 
-      function syncSpecialBarScroll(instant = false) {
-        const selected = specialBar.querySelector(".special-chip.selected");
+      function syncBarScroll(bar, instant = false) {
+        const selected = bar.querySelector(".special-chip.selected");
         if (!selected) return;
         requestAnimationFrame(() => {
-          const targetTop = Math.max(
-            0,
-            selected.offsetTop - (specialBar.clientHeight - selected.offsetHeight - 8),
-          );
-          specialBar.scrollTo({ top: targetTop, behavior: instant ? "auto" : "smooth" });
+          const targetTop = Math.max(0, selected.offsetTop - (bar.clientHeight - selected.offsetHeight - 8));
+          bar.scrollTo({ top: targetTop, behavior: instant ? "auto" : "smooth" });
         });
       }
 
-      function selectNearestSpecialFromScroll() {
-        if (!game.specials.length) return;
-        const chips = [...specialBar.querySelectorAll(".special-chip")];
-        if (!chips.length) return;
-        const barRect = specialBar.getBoundingClientRect();
-        const loadedSlotCenter = barRect.bottom - 33;
-        let bestIndex = game.selectedSpecial;
+      function nearestChipIndex(bar, fallback) {
+        const chips = [...bar.querySelectorAll(".special-chip")];
+        if (!chips.length) return fallback;
+        const loadedSlotCenter = bar.getBoundingClientRect().bottom - 33;
+        let bestIndex = fallback;
         let bestDistance = Infinity;
         chips.forEach((chip, index) => {
           const rect = chip.getBoundingClientRect();
-          const chipCenter = rect.top + rect.height / 2;
-          const distance = Math.abs(chipCenter - loadedSlotCenter);
+          const distance = Math.abs(rect.top + rect.height / 2 - loadedSlotCenter);
           if (distance < bestDistance) {
             bestDistance = distance;
             bestIndex = index;
           }
         });
-        if (bestIndex !== game.selectedSpecial) {
-          game.selectedSpecial = bestIndex;
+        return bestIndex;
+      }
+
+      function selectNearestSpecialFromScroll() {
+        if (!game.specials.length) return;
+        const idx = nearestChipIndex(specialBar, game.selectedSpecial);
+        if (idx !== game.selectedSpecial) {
+          game.selectedSpecial = idx;
+          renderSpecialBar({ instant: true });
+        }
+      }
+
+      function selectNearestStreakFromScroll() {
+        if (!game.streakBank.length) return;
+        const idx = nearestChipIndex(streakBar, game.selectedStreak);
+        if (idx !== game.selectedStreak) {
+          game.selectedStreak = idx;
           renderSpecialBar({ instant: true });
         }
       }
 
       function castSelectedSpecial() {
-        // Only castable mid-wave — otherwise a stray tap during the clear/victory breather burns a
-        // banked special (e.g. the once-per-run NUKE) for zero effect.
+        // Element bank (Q / element-bar tap). Only castable mid-wave.
         if (!game.specials.length || game.state !== "wave") return;
         const special = game.specials.splice(game.selectedSpecial, 1)[0];
         game.selectedSpecial = Math.max(0, Math.min(game.selectedSpecial, game.specials.length - 1));
         logEvent("special-cast", { label: special.label, effect: special.effect });
+        executeSpecial(special);
+        renderSpecialBar({ instant: true });
+      }
+
+      function castSelectedStreak() {
+        // Streak-milestone bank (E / Streak button / streak-bar tap). Never fires from Q.
+        if (!game.streakBank.length || game.state !== "wave") return;
+        const special = game.streakBank.splice(game.selectedStreak, 1)[0];
+        game.selectedStreak = Math.max(0, Math.min(game.selectedStreak, game.streakBank.length - 1));
+        logEvent("special-cast", { label: special.label, effect: special.effect, bank: "streak" });
+        executeSpecial(special);
+        renderSpecialBar({ instant: true });
+      }
+
+      // Cast the first banked special matching an element effect (number-key 1-4 direct-cast).
+      function castElement(effect) {
+        if (game.state !== "wave") return;
+        const idx = game.specials.findIndex((s) => s.effect === effect);
+        if (idx < 0) {
+          blip({ type: "square", freq: 140, dur: 0.05, gain: 0.05 }); // "none banked" tick
+          return;
+        }
+        const special = game.specials.splice(idx, 1)[0];
+        if (idx < game.selectedSpecial) game.selectedSpecial -= 1; // keep the highlight on the same chip
+        game.selectedSpecial = Math.max(0, Math.min(game.selectedSpecial, game.specials.length - 1));
+        logEvent("special-cast", { label: special.label, effect: special.effect, viaKey: true });
         executeSpecial(special);
         renderSpecialBar({ instant: true });
       }
@@ -4298,7 +4908,10 @@
           // FIRE = a lingering ground inferno that burns anything standing in it (DoT zone, not a blast).
           createFireZone(pos, radius);
           for (const enemy of game.enemies) {
-            if (enemy.pos.distanceTo(pos) < radius) enemy.burn = Math.max(enemy.burn || 0, 4.5);
+            if (enemy.pos.distanceTo(pos) < radius) {
+              enemy.burn = Math.max(enemy.burn || 0, 4.5);
+              if (weaknessOf(enemy) === "fire") markWeak(enemy, "fire"); // surface the weakness for fire too
+            }
           }
         } else if (special.effect === "lightning") {
           // LIGHTNING = a forking chain that arcs enemy-to-enemy and stuns. No blast ring.
@@ -4320,7 +4933,7 @@
             if (!best) break;
             used.add(best);
             createLightningArc(prev, best.pos);
-            damageEnemy(best, damage * 1.3, best.pos.clone().sub(prev));
+            elementHit(best, damage * 1.3, "lightning", best.pos.clone().sub(prev));
             best.stunned = Math.max(best.stunned, 0.9);
             prev = best.pos.clone();
           }
@@ -4336,7 +4949,7 @@
               if (out.lengthSq() < 0.01) out.set(0, 1);
               if (enemy.knockVel) enemy.knockVel.addScaledVector(out.normalize(), 16);
               enemy.stunned = Math.max(enemy.stunned, 0.5);
-              damageEnemy(enemy, damage, out);
+              elementHit(enemy, damage, "wind", out);
             }
           }
           for (const pk of game.pickups) {
@@ -4955,16 +5568,26 @@
           contactDamage = 6;
           name = "Stonebreaker";
         } else if (type === "boss") {
-          // Bosses now every 3 waves; HP scales by wave so each is a real step up (w3≈27 → w15≈63).
-          // The deflect one-shot cheese is removed separately (deflected shots only chunk a boss now).
-          hp = 18 + wave * 3.0;
+          // Bosses every 3 waves; HP scales by wave (w3≈34 → w15≈82; King ×1.5≈123) so they're a real
+          // wall, and their telegraphed slams/volleys now hurt (log-9: bosses lived long but did ~0 dmg).
+          hp = 22 + wave * 4.0;
           speed = 0.58 + wave * 0.006;
           radius = 1.22;
-          contactDamage = 16;
+          contactDamage = 24;
           name = bossName(wave);
         }
 
-        contactDamage *= 1 + wave * 0.075;
+        // Each boss is a distinct fight (a "sophisticated version of a small mob"). kind drives the
+        // boss switch in updateEnemies; index matches bossName (every-3 cadence): w3..w15 -> 0..4.
+        const bossKind =
+          type === "boss"
+            ? ["father", "troll", "matron", "serpent", "king"][
+                Math.min(4, Math.max(0, Math.floor(wave / 3) - 1))
+              ]
+            : null;
+        if (bossKind === "king") hp *= 1.5; // the Shield Wall King must survive its shield-break into Phase 2
+
+        contactDamage *= 1 + wave * 0.12; // steeper so getting caught actually bites (log-9: ~0 dmg taken)
 
         // Distinct silhouette SIZE per archetype so they're tellable apart at a glance (the SotC grade
         // mutes color, so size + shape carry the read).
@@ -5083,12 +5706,16 @@
           }
         }
 
-        if (type === "shield") {
-          shieldMesh = new THREE.Mesh(new THREE.BoxGeometry(0.86, 1.0, 0.1), mats.metal);
-          shieldMesh.position.set(0, 0.06, 0.92);
+        if (type === "shield" || bossKind === "king") {
+          const big = bossKind === "king";
+          shieldMesh = new THREE.Mesh(
+            new THREE.BoxGeometry(big ? 2.1 : 0.86, big ? 2.5 : 1.0, 0.12),
+            mats.metal,
+          );
+          shieldMesh.position.set(0, big ? 0.1 : 0.06, big ? 1.85 : 0.92);
           // A bronze rim (child of the shield) so the guard reads as the thing to break.
-          const rim = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.05, 5, 10), mats.bronze);
-          rim.position.set(0, 0, 0.06);
+          const rim = new THREE.Mesh(new THREE.TorusGeometry(big ? 1.0 : 0.42, big ? 0.1 : 0.05, 5, 12), mats.bronze);
+          rim.position.set(0, 0, 0.07);
           shieldMesh.add(rim);
           group.add(shieldMesh);
         }
@@ -5225,12 +5852,34 @@
           blinkCd: 0.5 + Math.random() * 0.5, // lurker blinks soon after spawn, then ~every 2-3s
           blinkTel: 0, // lurker blink telegraph timer
           blinkTo: new THREE.Vector2(),
+          // --- movement-AI state (per-archetype intelligence beyond beelining) ---
+          kind: bossKind, // boss sub-type for the unique-boss switch (null for non-bosses)
+          weaveT: Math.random() * 6, // crawler S-curve phase
+          flankSide: Math.random() < 0.5 ? -1 : 1, // which way stalkers orbit / basics fan
+          lunge: 0, // stalker active-lunge timer
+          lungeTel: 0, // stalker lunge telegraph timer
+          lungeDir: new THREE.Vector2(), // locked at telegraph start (committed line)
+          spreadAngle: rand(-0.6, 0.6), // hugger residual approach offset
+          charge: 0, // brute/boss active-charge timer
+          chargeTel: 0, // brute/boss charge telegraph timer
+          chargeCd: 2 + Math.random() * 2,
+          chargeDir: new THREE.Vector2(), // locked at telegraph start
+          strafeDir: Math.random() < 0.5 ? -1 : 1, // shooter lateral slide
+          strafeFlip: 1.4 + Math.random() * 1.2,
+          slotAngle: 0, // assigned surround bearing
+          slamCd: 4 + Math.random() * 2, // boss ground-slam cadence
+          summonCd: 5 + Math.random() * 2, // matron add-summon cadence
+          burrowCd: 5 + Math.random() * 2, // serpent burrow cadence
+          burrowTel: 0,
+          burrowTo: new THREE.Vector2(),
+          intangible: 0, // serpent submerged timer (can't be hit / can't hit while >0)
+          brokenToast: false,
           stunned: 0,
           slowed: 0,
           rooted: 0,
           burn: 0,
           flash: 0,
-          shielded: type === "shield",
+          shielded: type === "shield" || bossKind === "king",
           broken: false,
           shieldMesh,
           clinging: false,
@@ -6173,6 +6822,144 @@
         }
       }
 
+      // ====================================================================================
+      // SOTC INTRO ENVIRONMENT — a Forbidden-Lands valley that surrounds the LOW cinematic camera (grounded in
+      // the reference library via the sotc-remake-modeling agent): a vertex-gradient skydome, an undulating
+      // grass/dust basin, THREE concentric bands of overlapping ERODED ridge-walls (lit + base-darkened +
+      // fog-tinted so they layer into the haze), hero landmarks (a leaning rock spire, a broken aqueduct arch,
+      // the distant Shrine of Worship), bare dead trees, half-buried boulders, and additive god-ray shafts.
+      // Built LAZILY on the first intro (NEVER headless — the smoke driver never presses Begin Climb) into its
+      // own group, shown only during the cinematic. The climb desert + gameplay are completely untouched.
+      let introEnv = null;
+      function buildIntroEnv() {
+        if (introEnv) return introEnv;
+        const g = new THREE.Group();
+        const rng = seededRand(0xc0ffee);
+        const rr = (lo, hi) => lo + rng() * (hi - lo);
+        const hash3 = (x, y, z) => { const s = Math.sin(x * 12.9898 + y * 78.233 + z * 37.719) * 43758.5453; return 2 * (s - Math.floor(s)) - 1; };
+        const FOG = new THREE.Color(0xbcc1b3);
+        const C = (h) => new THREE.Color(h);
+        const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+        // bottom->top vertex darken (fake AO / strata) + atmospheric fog-tint by distance, baked to vertex colors
+        const bakeRock = (geo, H, baseHex, dist) => {
+          const tint = C(baseHex).lerp(FOG, clamp01((dist - 130) / 190) * 0.7);
+          const p = geo.attributes.position, col = [];
+          for (let i = 0; i < p.count; i += 1) {
+            const t = clamp01((p.getY(i) + H / 2) / H);
+            const v = 0.5 + 0.5 * t; // base darker -> grounded mass + faux strata
+            col.push(tint.r * v, tint.g * v, tint.b * v);
+          }
+          geo.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+        };
+        // --- 1) SKY DOME (height gradient baked to vertex colors; never fogged) ---
+        const skyGeo = new THREE.SphereGeometry(900, 24, 16);
+        const skyTop = C(0x8f988c), skyBot = C(0xbcc1b3), sc = [];
+        const skp = skyGeo.attributes.position;
+        for (let i = 0; i < skp.count; i += 1) { const t = clamp01((skp.getY(i) / 900) * 1.2 + 0.4); const cc = skyBot.clone().lerp(skyTop, t); sc.push(cc.r, cc.g, cc.b); }
+        skyGeo.setAttribute("color", new THREE.Float32BufferAttribute(sc, 3));
+        const skyMesh = new THREE.Mesh(skyGeo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false }));
+        g.add(skyMesh); g.userData.sky = skyMesh; // tagged: the pale intro skydome is hidden during gameplay (gameplay keeps its moody sky/fog)
+        // --- 2) GROUND (undulating dunes; grass/dust/rock vertex colors) ---
+        const gg = new THREE.PlaneGeometry(1500, 1500, 64, 64); gg.rotateX(-Math.PI / 2);
+        const grass = C(0x8f8d58), shade = C(0x686b42), dust2 = C(0xb3a884), rockc = C(0x9a988e);
+        const gpos = gg.attributes.position, gcol = [];
+        for (let i = 0; i < gpos.count; i += 1) {
+          const x = gpos.getX(i), z = gpos.getZ(i);
+          const dune = 2.6 * hash3(x * 0.012, 0, z * 0.012) + 1.1 * hash3(x * 0.04, 5, z * 0.04);
+          gpos.setY(i, dune);
+          const m = 0.5 + 0.5 * hash3(x * 0.02 + 10, 0, z * 0.02 + 10);
+          const cc = grass.clone().lerp(shade, 0.5 - dune * 0.16); cc.lerp(dust2, (1 - m) * 0.55).lerp(rockc, 0.12);
+          gcol.push(cc.r, cc.g, cc.b);
+        }
+        gg.setAttribute("color", new THREE.Float32BufferAttribute(gcol, 3)); gg.computeVertexNormals();
+        const ground = new THREE.Mesh(gg, new THREE.MeshLambertMaterial({ vertexColors: true })); ground.position.y = GROUND_Y + 0.2; g.add(ground);
+        // --- ridge-wall geometry: a box with a JAGGED top skyline + crinkled face (flat-shaded facets) ---
+        const ridgeWall = (W, H, D, seed) => {
+          const geo = new THREE.BoxGeometry(W, H, D, 10, 3, 1); const p = geo.attributes.position;
+          for (let i = 0; i < p.count; i += 1) {
+            let x = p.getX(i); let y = p.getY(i); let z = p.getZ(i);
+            if (y > 0) { const n = 0.5 * hash3(x * 0.06 + seed, 0, 0) + 0.5 * hash3(x * 0.18 + seed, 9, 9); y += n * H * 0.32; } else { y = -H / 2; }
+            z += hash3(x, y, z) * D * 0.12;
+            p.setXYZ(i, x, y, z);
+          }
+          geo.computeVertexNormals(); return geo;
+        };
+        const rockMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+        // --- 3) THREE RIDGE BANDS encircling the camera (each piece's angular width > its spacing -> ranges) ---
+        const band = (count, rMin, rMax, hMin, hMax, wMin, wMax, hex, skipFront) => {
+          for (let i = 0; i < count; i += 1) {
+            const a = (i / count) * Math.PI * 2 + (rng() - 0.5) * 0.1;
+            if (skipFront && Math.cos(a) > 0.86) continue; // keep the +x march corridor open
+            const R = rr(rMin, rMax), W = rr(wMin, wMax), H = rr(hMin, hMax);
+            const geo = ridgeWall(W, H, 28 + rng() * 28, i * 13.7); bakeRock(geo, H, hex, R);
+            const m = new THREE.Mesh(geo, rockMat);
+            m.position.set(Math.cos(a) * R, GROUND_Y + H / 2 - 4, Math.sin(a) * R);
+            m.lookAt(0, m.position.y, 0); m.rotation.z += (rng() - 0.5) * 0.06; if (rng() < 0.5) m.scale.x *= -1;
+            g.add(m);
+          }
+        };
+        band(6, 110, 155, 22, 46, 55, 95, 0x5b574e, true);     // DARK flanking framing cliffs (repoussoir — frames the pale colossus + haze); behind the colossus depth, corridor open
+        band(14, 150, 215, 70, 140, 95, 165, 0x9a9d90, false); // mid hero cliffs (continuous wall)
+        band(18, 245, 325, 120, 215, 140, 220, 0xb0b4a8, false); // far ghost ranges (mostly haze -> layered silhouettes)
+        // --- 4) HERO LANDMARKS ---
+        { // leaning fluted rock spire
+          const spire = new THREE.Group(); let y = 0, r = 15;
+          for (let s = 0; s < 5; s += 1) {
+            const h = 34 - s * 3; const seg = new THREE.CylinderGeometry(r * 0.7, r, h, 16, 2); const pp = seg.attributes.position;
+            for (let i = 0; i < pp.count; i += 1) { const th = Math.atan2(pp.getZ(i), pp.getX(i)); const rad = 1 + 0.07 * Math.sin(th * 9); pp.setX(i, pp.getX(i) * rad); pp.setZ(i, pp.getZ(i) * rad); }
+            seg.computeVertexNormals(); bakeRock(seg, h, 0xa6a99c, 180);
+            const mm = new THREE.Mesh(seg, rockMat); mm.position.y = y + h / 2; spire.add(mm); y += h * 0.96; r *= 0.82;
+          }
+          spire.position.set(95, GROUND_Y, -135); spire.rotation.z = 0.13; g.add(spire);
+        }
+        { // broken aqueduct arch
+          const arch = new THREE.Group();
+          const span = new THREE.Mesh(new THREE.TorusGeometry(34, 7, 6, 16, Math.PI * 0.8), rockMat); bakeRock(span.geometry, 68, 0x97998c, 150); span.rotation.z = -Math.PI * 0.1; span.position.y = 36; arch.add(span);
+          for (const sx of [-30, 34]) { const legH = 40; const leg = new THREE.Mesh(ridgeWall(12, legH, 12, sx), rockMat); bakeRock(leg.geometry, legH, 0x909286, 150); leg.position.set(sx, legH / 2, 0); arch.add(leg); }
+          arch.position.set(-115, GROUND_Y, -95); arch.rotation.y = 0.5; g.add(arch);
+        }
+        { // Shrine of Worship — far pale ghost on the horizon
+          const shrine = new THREE.Group();
+          const body = new THREE.Mesh(new THREE.BoxGeometry(64, 20, 28), rockMat); bakeRock(body.geometry, 20, 0xb4b7ab, 300); body.position.y = 10; shrine.add(body);
+          const dome = new THREE.Mesh(new THREE.SphereGeometry(11, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2), rockMat); bakeRock(dome.geometry, 11, 0xb4b7ab, 300); dome.position.y = 20; shrine.add(dome);
+          for (let i = 0; i < 11; i += 1) { const pil = new THREE.Mesh(new THREE.BoxGeometry(2.4, 12, 2.4), rockMat); bakeRock(pil.geometry, 12, 0xb4b7ab, 300); pil.position.set(-30 + i * 6, 20, 12); shrine.add(pil); }
+          for (const sx of [-34, 34]) { const tow = new THREE.Mesh(new THREE.BoxGeometry(10, 40, 10), rockMat); bakeRock(tow.geometry, 40, 0xb4b7ab, 300); tow.position.set(sx, 20, 0); shrine.add(tow); }
+          shrine.position.set(30, GROUND_Y, -230); g.add(shrine);
+        }
+        // --- 5) DEAD TREES (all branch segments in ONE InstancedMesh) ---
+        { const seg = new THREE.CylinderGeometry(0.6, 1.0, 1, 5, 1).translate(0, 0.5, 0);
+          const M = [], up = new THREE.Vector3(0, 1, 0);
+          const branch = (pos, dir, len, rad, depth) => {
+            const nd = dir.clone().normalize(); const end = pos.clone().addScaledVector(nd, len);
+            const q = new THREE.Quaternion().setFromUnitVectors(up, nd);
+            M.push(new THREE.Matrix4().compose(pos, q, new THREE.Vector3(rad, len, rad)));
+            if (depth <= 0) return;
+            const n = 2 + (rng() < 0.4 ? 1 : 0);
+            for (let k = 0; k < n; k += 1) { const d = nd.clone(); d.x += (rng() - 0.5) * 1.1; d.z += (rng() - 0.5) * 1.1; d.y += 0.2; branch(end, d, len * (0.6 + rng() * 0.15), rad * 0.66, depth - 1); }
+          };
+          const spots = [[60, -70], [-80, -90], [110, -60], [-50, -130], [150, -110], [-130, -70], [40, -150], [90, -180]];
+          for (const sp of spots) branch(new THREE.Vector3(sp[0], GROUND_Y, sp[1]), new THREE.Vector3((rng() - 0.5) * 0.2, 1, (rng() - 0.5) * 0.2), 9 + rng() * 6, 1.3, 4);
+          const tree = new THREE.InstancedMesh(seg, new THREE.MeshLambertMaterial({ color: 0x3a352b }), M.length);
+          M.forEach((m, i) => tree.setMatrixAt(i, m)); if (tree.instanceMatrix) tree.instanceMatrix.needsUpdate = true; tree.frustumCulled = false; g.add(tree);
+        }
+        // --- 6) BOULDERS (half-buried, instanced) ---
+        { const bgeo = new THREE.DodecahedronGeometry(1, 0); const inst = new THREE.InstancedMesh(bgeo, new THREE.MeshLambertMaterial({ color: 0x6f6c5f, flatShading: true }), 28); const d = new THREE.Object3D();
+          for (let i = 0; i < 28; i += 1) { const a = rng() * Math.PI * 2, R = rr(55, 210), s = rr(2, 6); d.position.set(Math.cos(a) * R, GROUND_Y - s * 0.3, Math.sin(a) * R); d.rotation.set(rng() * 3, rng() * 3, rng() * 3); d.scale.set(s * rr(0.8, 1.5), s * rr(0.7, 1.2), s * rr(0.8, 1.5)); d.updateMatrix(); inst.setMatrixAt(i, d.matrix); }
+          if (inst.instanceMatrix) inst.instanceMatrix.needsUpdate = true; inst.frustumCulled = false; g.add(inst);
+        }
+        // --- 7) GOD-RAY SHAFTS (additive curtains; opacity drifts in updateIntro) ---
+        const shafts = [];
+        for (let i = 0; i < 4; i += 1) {
+          const w = rr(30, 60), h = 260; const sg = new THREE.PlaneGeometry(w, h, 1, 4); const col = []; const pp = sg.attributes.position;
+          for (let k = 0; k < pp.count; k += 1) { const t = (pp.getY(k) / h) + 0.5; const v = t * t; col.push(v, v, v); }
+          sg.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+          const sh = new THREE.Mesh(sg, new THREE.MeshBasicMaterial({ color: 0xeef0e6, vertexColors: true, transparent: true, opacity: 0.08, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, side: THREE.DoubleSide }));
+          sh.position.set(-60 + i * 40, GROUND_Y + 150, -150 - i * 20); sh.rotation.set(0.2, 0.3, 0.18 + i * 0.05); g.add(sh); shafts.push(sh);
+        }
+        g.userData.shafts = shafts;
+        g.visible = false; groups.world.add(g); introEnv = g; return g;
+      }
+
       // The "walking" illusion: the climbed body NEVER moves (combat surface stays put); instead the
       // distant desert parallaxes/sways and the camera bobs, with a footfall thump twice per stride.
       // Transform-only (no geometry-array writes) so it's headless-safe; gated on reduce-motion.
@@ -6189,6 +6976,12 @@
           groups.world.position.y = -Math.abs(Math.sin(walkPhase)) * WALK.worldHeaveY; // ground heaves down as weight lands
           groups.world.rotation.z = Math.sin(walkPhase * 0.5) * WALK.worldRollZ;
         }
+        // (Forward travel during gameplay comes from the per-stride FORWARD LURCH below — groups.world surges toward
+        // the camera on each planted step and the SotC valley rides it. We do NOT linearly scroll the surrounding
+        // valley: translating a ring centred on the play area drags its cliffs THROUGH the body — that read as
+        // sideways "strafing" AND clipped/occluded the gameplay. The bounded per-step lurch + camera bob never enter
+        // the play space, so the climb reads as a heavy trudge forward with no clipping.)
+        if (introEnv) introEnv.position.x = 0; // ensure no residual drift offset
         const fp = Math.sin(walkPhase * 2);
         if (game.started && game.state !== "dead" && fp < -0.985) {
           const now = performance.now() / 1000;
@@ -6333,20 +7126,20 @@
           hide.normal.wrapS = THREE.RepeatWrapping;
           hide.normal.wrapT = THREE.RepeatWrapping;
         }
-        groups.terrain.add(
-          new THREE.Mesh(
-            g,
-            new THREE.MeshStandardMaterial({
-              color: hide.albedo ? 0xffffff : 0x4a443a, // map carries the hide colour; tint on fallback only
-              map: hide.albedo || null,
-              normalMap: hide.normal || null,
-              vertexColors: true,
-              roughness: 1,
-              flatShading: true,
-              side: THREE.DoubleSide,
-            }),
-          ),
+        const spineMesh = new THREE.Mesh(
+          g,
+          new THREE.MeshStandardMaterial({
+            color: hide.albedo ? 0xffffff : 0x4a443a, // map carries the hide colour; tint on fallback only
+            map: hide.albedo || null,
+            normalMap: hide.normal || null,
+            vertexColors: true,
+            roughness: 1,
+            flatShading: true,
+            side: THREE.DoubleSide,
+          }),
         );
+        groups.terrain.add(spineMesh);
+        colossusSpineMesh = spineMesh; // ref so the GLB climb swap can hide the procedural body (fallback otherwise)
       }
 
       function buildTerrain() {
@@ -6406,6 +7199,36 @@
         introSilhouette.add(silHead);
         introSilhouette.visible = false; // only shown during the intro
         groups.world.add(introSilhouette);
+
+        // FOREGROUND ROCK FIELD — dark stone slabs/boulders scattered in the camera's NEAR field along the colossus's
+        // path. As the low camera tracks + pans with the marching giant, these sweep across the lower frame (strong
+        // parallax = scale + motion, the "stuff crossing the foreground" of the original intro). Low, so they ride the
+        // bottom of the shot and never block the body. Only shown during the intro.
+        introForeground = new THREE.Group();
+        const fgRnd = seededRand(0x1c0f3a);
+        const fr = (lo, hi) => lo + fgRnd() * (hi - lo);
+        for (let i = 0; i < 8; i += 1) {
+          const mat = i % 2 ? mats.stoneDark : mats.stone;
+          const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(fr(5, 11), 0), mat);
+          // MID-foreground: spread along the camera's x-path, seated 20-40u IN FRONT of the camera plane (z ~ -35..-19)
+          // and LOW (base near the sand) so they ride the BOTTOM of the low-angle frame — crossing for parallax without
+          // ballooning to block the colossus (the camera arcs from x~-58 to ~+6, so this x-spread keeps one always near).
+          rock.position.set(-56 + i * 15 + fr(-5, 5), GROUND_Y + fr(-4, 2), -75 + fr(40, 58));
+          rock.rotation.set(fr(0, Math.PI), fr(0, Math.PI), fr(0, Math.PI));
+          rock.scale.set(fr(0.9, 1.7), fr(0.6, 1.2), fr(0.9, 1.6));
+          introForeground.add(rock);
+        }
+        // THIN near-foreground RUINS the low camera SWEEPS PAST (a few broken pillars) — tall + thin so they loom and
+        // streak by close without blocking the colossus, selling scale/travel. (Dead tree removed per feedback — it
+        // read as a stray dark figure, not a tree.) Broken columns read clearly as ancient architecture, not a "character".
+        for (const pp of [[-32, -11, 27], [2, -12, 23], [25, -22, 18]]) {
+          const ph = pp[2];
+          const col = new THREE.Mesh(new THREE.CylinderGeometry(2.0, 2.7, ph, 10), mats.stone); col.position.set(pp[0], GROUND_Y + ph / 2, pp[1]); col.rotation.z = fr(-0.06, 0.06); introForeground.add(col);
+          // broken-top capital block, offset/tilted so it reads as a toppled ruin (not a head on a body)
+          const cap = new THREE.Mesh(new THREE.BoxGeometry(7, 2.4, 7), mats.stoneDark); cap.position.set(pp[0] + fr(-1.5, 1.5), GROUND_Y + ph - 0.4, pp[1] + fr(-1.5, 1.5)); cap.rotation.set(fr(-0.2, 0.2), fr(0, 1.2), fr(-0.2, 0.2)); introForeground.add(cap);
+        }
+        introForeground.visible = false; // only shown during the intro
+        groups.world.add(introForeground);
       }
 
       // Carved stone-armour ring: a cuff of blockwork + arch motifs (the SotC architectural plates).
@@ -6485,7 +7308,7 @@
           hideTex.normal.wrapT = THREE.RepeatWrapping;
         }
         const hideMat = new THREE.MeshStandardMaterial({
-          color: hideTex.albedo ? 0xffffff : 0x6a6258,
+          color: hideTex.albedo ? 0x8c8678 : 0x57534a, // multiply the hide texture DOWN: a darker SotC beast reads against the pale haze + cliffs (the colossus must be the dark subject, not blend with the env)
           map: hideTex.albedo || null,
           normalMap: hideTex.normal || null,
           roughness: 1,
@@ -6738,11 +7561,187 @@
         upper.add(head);
         parts.head = head;
 
+        // ---- TAIL — a thick curved SEGMENTED appendage off the lower back (the SAM mesh signature). A pivot
+        // group at the pelvis sways with the gait; segments taper + curve down-and-back via a constant per-joint
+        // bend, each a sphere+cylinder so it reads as a heavy braided tail. Stone cuff bands every few segments.
+        if (C.tailSegs > 0) {
+          const tail = new THREE.Group();
+          tail.position.set(-C.upperBackD * 0.5, 4, 0); // root at the lower back / rump, behind the hips (-x)
+          tail.rotation.z = 0.5; // initial droop downward
+          parts.tailBaseY = 0;
+          let seg = tail;
+          const segLen = C.tailLen / C.tailSegs;
+          for (let i = 0; i < C.tailSegs; i += 1) {
+            const f = i / C.tailSegs;
+            const r = C.tailBaseR * (1 - 0.72 * f); // taper toward the tip
+            const link = new THREE.Group();
+            if (i > 0) { link.position.x = -segLen; link.rotation.z = C.tailCurve; } // curl back/down each joint
+            const knuckle = ball(r * 1.05, hideMat);
+            link.add(knuckle);
+            const tube = cyl(r * 0.92, C.tailBaseR * (1 - 0.72 * (f + 1 / C.tailSegs)), segLen, hideMat, 10);
+            tube.rotation.z = Math.PI / 2; // lay the segment along -x
+            tube.position.x = -segLen / 2;
+            link.add(tube);
+            if (i % 2 === 0 && i < C.tailSegs - 1) {
+              const band = makeStoneCuff(r + 1.1, 3.2);
+              band.rotation.z = Math.PI / 2;
+              band.position.x = -segLen * 0.5;
+              link.add(band);
+            }
+            seg.add(link);
+            seg = link;
+          }
+          upper.add(tail);
+          parts.tail = tail;
+        }
+
         root.add(upper);
         parts.upper = upper;
         root.userData.parts = parts;
         colossusCreature = root;
         return root;
+      }
+
+      // ====================================================================================
+      // GLB COLOSSUS LOADER (PROGRESSIVE ENHANCEMENT) — load game/colossus.glb once, then swap it in as
+      // the visible intro beast + climbed body. SMOKE-SAFE: GLTFLoader is pulled via a GUARDED DYNAMIC
+      // import inside this async fn — the headless smoke test stubs THREE/DOM with NO GLTFLoader and NO
+      // network, so the import rejects and we keep the procedural creature + spine (the catch swallows it,
+      // no unhandled rejection). NEVER add a top-level `import ... GLTFLoader`. Fire-and-forget at startup;
+      // the procedural visuals are already up, so nothing blocks on this. Knobs live in GLB_COLOSSUS.
+      function applyGLBColossus() {
+        if (!glbColossus) return;
+        // INTRO — parent a clone into the creature root (same group/position the procedural creature uses),
+        // so the intro march translate carries it across the desert. Hide the procedural meshes so they
+        // don't double up; keep the part Groups (the lumber still drives the now-hidden rig harmlessly).
+        const I = GLB_COLOSSUS.intro;
+        if (I && I.enabled && colossusCreature) {
+          // IDEMPOTENT: drop any prior wrapper so a re-fit (config sweep / live retune) never stacks duplicates.
+          if (glbIntroNode && glbIntroNode.parent) glbIntroNode.parent.remove(glbIntroNode);
+          glbIntroNode = null;
+          if (glbMixer) { try { glbMixer.stopAllAction(); } catch (e) {} }
+          glbMixer = null; glbIntroAction = null;
+          colossusCreature.traverse((o) => { if (o && o.isMesh) o.visible = false; });
+          const model = glbColossus; // rigged SkinnedMesh root — used directly (clone breaks skeleton binding; single intro instance, climb off)
+          if (model.parent) model.parent.remove(model); // detach from any prior wrapper before re-wrapping
+          model.position.set(0, 0, 0); model.rotation.set(0, 0, 0); model.scale.setScalar(1); // reset before re-fit
+          // DE-WASH: the assimp material (no UVs) renders near-white and blows out in the bright fog. Swap every mesh
+          // to a dark, high-roughness SotC stone/fur MeshStandardMaterial so it reads as a dark colossus silhouette.
+          // (Color literal auto-converts sRGB->linear under r164 ColorManagement; skinning is auto-enabled by the
+          // geometry's skin attributes, so a plain Standard material deforms correctly.)
+          model.traverse((o) => {
+            if (o && o.isMesh) {
+              const old = o.material;
+              o.material = new THREE.MeshStandardMaterial({ color: 0x4a463d, roughness: 0.95, metalness: 0 });
+              o.frustumCulled = false; // skinned bind-pose bounds + giant scale -> never let it pop out near screen edges
+              if (old && old.dispose) { try { old.dispose(); } catch (e) {} }
+            }
+          });
+          // FACE TRAVEL: rotY orients the model along the march vector; rotX/rotZ stand it if the extraction axis is off.
+          model.rotation.set(I.rotX || 0, I.rotY || 0, I.rotZ || 0);
+          // COORDINATE-CLEAN SKINNED AUTO-FIT (verified via headless render). Wrap the GLB in a Group, measure the model
+          // in WRAPPER-LOCAL space while the wrapper is identity (so the box is small + local, never world-space), recenter
+          // the MODEL inside the wrapper so the wrapper origin == foot-centre, THEN scale the wrapper (scaling around the
+          // origin keeps the feet planted) and place the wrapper directly in creature-local space. The previous version
+          // measured a WORLD box and nudged a LOCAL wrapper.position by world deltas after a ~114x scale — the space
+          // mismatch flung the beast ~10,000u off-camera. NEVER reintroduce world-vs-local mixing here.
+          const wrapper = new THREE.Group();
+          wrapper.add(model);
+          colossusCreature.add(wrapper); // added AFTER the hide traverse, so it stays visible
+          glbIntroNode = wrapper;
+          if (I.useClip && glbColossusClip) { // OFF: the assimp clip corrupts the pose (see useClip note) — lumber instead
+            try {
+              glbMixer = new THREE.AnimationMixer(model); // root = the GLB scene (ancestor of every bone the clip binds)
+              glbIntroAction = glbMixer.clipAction(glbColossusClip);
+              glbIntroAction.timeScale = I.clipTimeScale || 1;
+              glbIntroAction.play();
+            } catch (e) { glbMixer = null; glbIntroAction = null; }
+          }
+          try {
+            // 1) measure the SKINNED bind bounds (what actually RENDERS) in WRAPPER-LOCAL space. A SkinnedMesh renders
+            //    its verts through the skeleton+bindMatrix, and on this assimp rig that posed result is offset from the
+            //    raw geometry box — so seating on geometry.boundingBox leaves the beast FLOATING (verified via headless).
+            //    SkinnedMesh.computeBoundingBox() walks the skinned positions = the true rendered shape. Force a fresh
+            //    compute (clear the cache) so it reflects the current (bind) pose, then transform o-local -> wrapper-local.
+            wrapper.position.set(0, 0, 0);
+            wrapper.scale.setScalar(1);
+            model.position.set(0, 0, 0);
+            wrapper.updateMatrixWorld(true); // wrapper.matrixWorld now == colossusCreature.matrixWorld (creature offset)
+            const invWrap = new THREE.Matrix4().copy(wrapper.matrixWorld).invert();
+            const box = new THREE.Box3(); // built in WRAPPER-LOCAL space (model rotation in, creature offset out)
+            const tmp = new THREE.Box3();
+            const m = new THREE.Matrix4();
+            model.traverse((o) => {
+              if (!o || !o.geometry) return;
+              let local = null;
+              if (o.isSkinnedMesh && o.computeBoundingBox) {
+                o.boundingBox = null; o.computeBoundingBox(); local = o.boundingBox; // true skinned (rendered) bounds
+              } else if (o.isMesh) {
+                if (!o.geometry.boundingBox) o.geometry.computeBoundingBox(); local = o.geometry.boundingBox;
+              }
+              if (local) {
+                m.multiplyMatrices(invWrap, o.matrixWorld); // o-local -> wrapper-local
+                tmp.copy(local).applyMatrix4(m);
+                box.union(tmp);
+              }
+            });
+            const size = new THREE.Vector3(); box.getSize(size);
+            const center = new THREE.Vector3(); box.getCenter(center);
+            const h = size.y > 1e-4 ? size.y : 1;
+            const s = (I.targetHeight || 90) / h;
+            // 2) recenter the MODEL so the wrapper origin sits at the FOOT-CENTRE (x,z centred, y at the feet/min)
+            model.position.x = -center.x;
+            model.position.z = -center.z;
+            model.position.y = -box.min.y;
+            // 3) scale the wrapper (about its origin -> feet stay planted), then 4) drop it in creature-local space
+            wrapper.scale.setScalar(s);
+            wrapper.position.set(I.posX || 0, I.posY || 0, I.posZ || 0); // feet land at (posX, posY, posZ) in creature space
+          } catch (e) {
+            wrapper.scale.setScalar((I.targetHeight || 90) / 100); // headless/Box3-less fallback: a sane non-explosive scale
+            wrapper.position.set(I.posX || 0, I.posY || 0, I.posZ || 0);
+          }
+          glbIntroBaseY = wrapper.position.y; // baselines for the no-clip lumber fallback (applied to the wrapper)
+          glbIntroBaseRotX = wrapper.rotation.x;
+          glbIntroBaseRotZ = wrapper.rotation.z;
+        }
+        // CLIMB — add a clone to groups.terrain oriented/scaled to form the body, and hide the procedural
+        // spine. surfaceZ / combat / camera / spawns are UNTOUCHED — the GLB is purely the visible skin.
+        const Cc = GLB_COLOSSUS.climb;
+        if (Cc && Cc.enabled) {
+          const climb = glbColossus.clone(true);
+          climb.scale.setScalar(Cc.scale);
+          climb.rotation.set(Cc.rotX, Cc.rotY, Cc.rotZ);
+          climb.position.set(Cc.posX, Cc.posY, Cc.posZ);
+          if (colossusSpineMesh) colossusSpineMesh.visible = false;
+          groups.terrain.add(climb);
+        }
+      }
+      async function initGLBColossus() {
+        if (!GLB_COLOSSUS || (!GLB_COLOSSUS.intro.enabled && !GLB_COLOSSUS.climb.enabled)) return;
+        try {
+          // GUARDED dynamic import — resolves only in a real browser via the importmap addons key.
+          const { GLTFLoader } = await import("three/addons/loaders/GLTFLoader.js");
+          const loader = new GLTFLoader();
+          loader.load(
+            GLB_COLOSSUS.url,
+            (gltf) => {
+              try {
+                glbColossus = gltf.scene; // GLTFLoader already tags texture colour spaces correctly
+                glbColossusClip = (gltf.animations && gltf.animations[0]) || null; // the Mixamo walk clip
+                applyGLBColossus();
+              } catch (e) {
+                console.warn("[SantiagoWrath] colossus.glb applied failed; keeping procedural", e);
+              }
+            },
+            undefined,
+            (err) => {
+              console.warn("[SantiagoWrath] colossus.glb load failed; keeping procedural", err);
+            },
+          );
+        } catch (e) {
+          // No GLTFLoader (headless smoke / addons unavailable) — keep the procedural creature + spine.
+          console.warn("[SantiagoWrath] GLTFLoader unavailable; keeping procedural colossus", e);
+        }
       }
 
       function createArenaEdges(y, wave) {
@@ -7420,9 +8419,9 @@
         // Walking lumber — applied AFTER lookAt so it reads as the colossus striding (bounded; off under
         // reduce-motion). Heavier heave + a slow shoulder roll so you feel perched high on the beast.
         if (!game.reduceMotion && game.started) {
-          camera.position.y += Math.sin(walkPhase * 2) * 0.2 - Math.max(0, -Math.sin(walkPhase * 2)) * 0.12; // stomp dip
-          camera.position.x += Math.sin(walkPhase) * 0.13;
-          camera.rotation.z += Math.sin(walkPhase * 0.5) * 0.012; // gentle lumbering roll
+          camera.position.y += Math.sin(walkPhase * 2) * 0.42 - Math.max(0, -Math.sin(walkPhase * 2)) * 0.26; // per-step heave + stomp dip (muted but felt)
+          camera.position.x += Math.sin(walkPhase) * 0.28; // lateral weight-shift sway over the planted leg
+          camera.rotation.z += Math.sin(walkPhase * 0.5) * 0.02; // slow lumbering roll
         }
         runeLight.position.set(player.pos.x, player.pos.y + 4, 7);
       }
@@ -7462,16 +8461,31 @@
         game.introTime = 0;
         game.introShake = 0;
         game.introStepLast = -1;
+        game.introClipPhaseLast = 0; // last sampled clip phase (0..1), for clip-driven footfall edge detection
         game.introFadingOut = false;
         game.introStartX = -12;
-        game.introCamZ = -11; // camera sits in FRONT (+z) of the creature, ~64u away, low to the sand
+        game.introStartZ = -75; // the creature's starting z-plane; the march carries it +x (right) and -z (away)
         if (groups.world) {
           groups.world.position.set(0, 0, 0);
           groups.world.rotation.z = 0;
         }
-        colossusCreature.position.set(game.introStartX, GROUND_Y, -75);
+        colossusCreature.position.set(game.introStartX, GROUND_Y, game.introStartZ);
         colossusCreature.visible = true;
-        if (introSilhouette) introSilhouette.visible = true;
+        if (introSilhouette) introSilhouette.visible = false; // REMOVED per feedback (the tiny hooded scale figure read as a stray "dark character")
+        if (introForeground) introForeground.visible = true; // near-field rocks/trees/pillars sweep the lower frame (parallax/scale)
+        // SOTC INTRO ENVIRONMENT (built lazily on first intro): a Forbidden-Lands valley encircling the low
+        // camera. Show it and HIDE the gameplay parallax desert (basin + scrolling ruins) so they don't double
+        // up — both live in groups.world. Restored in endIntro(); the climb scene + combat are untouched.
+        const env = buildIntroEnv(); if (env) { env.visible = true; if (env.userData.sky) env.userData.sky.visible = true; if (env.userData.shafts) for (const s of env.userData.shafts) s.visible = true; }
+        if (desertBasin) desertBasin.visible = false;
+        for (const L of desertScrollLayers) if (L && L.mesh) L.mesh.visible = false;
+        // HIDE THE CLIMB SCENE during the cinematic. groups.terrain holds the 354u climbable colossus column
+        // (+ its fur/ribs/rocks/sky sphere). Restored in endIntro() before the top-down climb camera takes over.
+        if (groups.terrain) groups.terrain.visible = false;
+        // ATMOSPHERE: pale SotC haze for the cinematic (atmospheric perspective layers the ridge bands). Restore
+        // the gameplay fog/sky in endIntro().
+        if (scene.fog) { introFogDensity = scene.fog.density; introFogColorHex = scene.fog.color.getHex(); scene.fog.density = 0.008; scene.fog.color.set(0xbcc1b3); }
+        if (scene.background && scene.background.getHex) { introBgHex = scene.background.getHex(); scene.background.set(0xbcc1b3); }
         const hud = document.querySelector(".hud"); // hide the gameplay HUD/controls during the cinematic
         if (hud) {
           hud.style.opacity = "0";
@@ -7501,20 +8515,24 @@
         const w = (((p % Math.PI) + Math.PI) % Math.PI) / Math.PI; // 0..1 through the current step
         const plant = Math.exp(-7 * w);                            // 1 at contact -> ~0 — the heavy thud / dip
         const settle = Math.exp(-3.5 * w) * Math.sin(w * Math.PI * 3); // small overshoot/recoil after the thud
-        const legAmp = 0.5;
+        // AMPLITUDES DERIVED FROM THE MIXAMO Walking.fbx (per-joint swing extracted offline): hip ±0.54 rad,
+        // knee flex ~0.5 peaking just after lift, arm ±0.24 anti-phase, spine twist ±0.06, hip tilt ±0.08.
+        const legAmp = 0.54;
         // hips swing (strictly alternating); knees FLEX only while their leg is in the forward/lift swing
         if (P.legL) P.legL.rotation.z = sL * legAmp;
         if (P.legR) P.legR.rotation.z = -sL * legAmp;
-        if (P.lowerL) P.lowerL.rotation.z = -0.6 * Math.max(0, sL);  // L knee tucks during its swing, straight when planted
-        if (P.lowerR) P.lowerR.rotation.z = -0.6 * Math.max(0, -sL); // R knee tucks half a cycle later
+        if (P.lowerL) P.lowerL.rotation.z = -0.55 * Math.max(0, sL);  // L knee tucks during its swing, straight when planted
+        if (P.lowerR) P.lowerR.rotation.z = -0.55 * Math.max(0, -sL); // R knee tucks half a cycle later
         // arms swing OPPOSITE the legs, with a small forward jolt as the weight lands
-        if (P.armL) P.armL.rotation.z = P.armBaseZ - sL * 0.32 + plant * 0.05;
-        if (P.armR) P.armR.rotation.z = P.armBaseZ + sL * 0.32 + plant * 0.05;
+        if (P.armL) P.armL.rotation.z = P.armBaseZ - sL * 0.24 + plant * 0.05;
+        if (P.armR) P.armR.rotation.z = P.armBaseZ + sL * 0.24 + plant * 0.05;
         if (P.upper) {
-          P.upper.rotation.x = sL * 0.075;                    // lateral weight-SHIFT: lean over the planted leg
-          P.upper.rotation.z = -plant * 0.045;                // brief forward pitch-lurch as the weight drops in
-          P.upper.position.y = P.upperBaseY - plant * 1.7 + settle * 0.5; // HEAVY dip on contact, then settle/recoil
+          P.upper.rotation.x = sL * 0.08;                     // lateral weight-SHIFT: lean over the planted leg
+          P.upper.rotation.y = sL * 0.06;                     // torso TWIST with the stride (FBX spine Y ~0.11)
+          P.upper.rotation.z = -plant * 0.05;                 // brief forward pitch-lurch as the weight drops in
+          P.upper.position.y = P.upperBaseY - plant * 2.4 + settle * 0.7; // HEAVY dip on contact, then settle/recoil
         }
+        if (P.tail) P.tail.rotation.y = (P.tailBaseY || 0) + sL * 0.14 + Math.sin(p * 0.5) * 0.05; // tail sways with the gait
         if (P.head) {
           const pl = p - 0.7;                                 // head TRAILS the body — secondary motion
           const wl = (((pl % Math.PI) + Math.PI) % Math.PI) / Math.PI;
@@ -7543,14 +8561,53 @@
         game.introTime += dt;
         const t = game.introTime;
         const c = colossusCreature;
-        c.position.x = game.introStartX + t * WALK.introMarchSpeed; // SLOW lumber across the desert (+x) — giant scale
+        // MARCH VECTOR — toward screen-RIGHT (+x) and slightly AWAY from the camera (-z); the model is rotY'd to face it.
+        const dl = Math.hypot(WALK.introMarchDirX, WALK.introMarchDirZ) || 1;
+        const dirX = WALK.introMarchDirX / dl, dirZ = WALK.introMarchDirZ / dl;
+        c.position.x = game.introStartX + t * WALK.introMarchSpeed * dirX; // slow giant lumber across the desert
+        c.position.z = game.introStartZ + t * WALK.introMarchSpeed * dirZ;
         colossusGait(c, t);
-        // footfalls -> dust puff + camera shake + a low seismic thud (cadence matches the gait -> longer interval)
-        const step = Math.floor((t * WALK.introCadence) / Math.PI);
-        if (step !== game.introStepLast) {
-          game.introStepLast = step;
-          const footSide = step % 2 === 0 ? 1 : -1;
-          spawnIntroDust(c.position.x + 2, GROUND_Y, c.position.z + footSide * COLOSSUS.legSeparation);
+        // GLB BEAST GAIT — the assimp walk clip is unusable (see GLB_COLOSSUS.intro.useClip), so the WHOLE bind-pose
+        // body lumbers: a heavy weight-DIP + recoil-settle on each footfall, a lateral weight-SHIFT rocking over the
+        // planted leg, and a forward pitch-lurch as the mass drops in. Amplitudes scale with targetHeight so the giant
+        // reads as ponderous, not twitchy. (If a clean re-exported clip is ever wired in, glbMixer drives it instead.)
+        if (glbMixer) {
+          glbMixer.update(dt);
+        } else if (glbIntroNode) {
+          const H = GLB_COLOSSUS.intro.targetHeight || 90;
+          const gp = t * WALK.introCadence;
+          const gsL = Math.sin(gp);                                          // -1..1 lateral stride phase
+          const gw = (((gp % Math.PI) + Math.PI) % Math.PI) / Math.PI;       // 0..1 within the current footstep
+          const gplant = Math.exp(-7 * gw);                                  // 1 at contact -> ~0: the heavy thud/dip
+          const gsettle = Math.exp(-3.5 * gw) * Math.sin(gw * Math.PI * 3);  // overshoot/recoil after the thud
+          const dip = H * 0.034;                                             // vertical heave on each footfall
+          const lat = H * 0.018;                                             // lateral weight-shift over the planted leg
+          glbIntroNode.position.y = glbIntroBaseY - gplant * dip + gsettle * dip * 0.4;
+          glbIntroNode.position.x = (GLB_COLOSSUS.intro.posX || 0) + gsL * lat;
+          glbIntroNode.rotation.x = glbIntroBaseRotX - gplant * 0.06;        // forward lurch as weight drops in
+          glbIntroNode.rotation.z = glbIntroBaseRotZ + gsL * 0.07;           // lateral lean over the planted leg
+        }
+        // FOOTFALLS -> dust puff + camera shake + low seismic thud. When the rigged clip is playing, fire on the CLIP's
+        // actual foot-plant phases (action.time mod clip duration) so the thud lands WHEN a foot hits — not on a stale
+        // cadence. Two plants per cycle -> two tunable phase offsets. Fall back to the gait cadence when there's no clip.
+        let footfall = false, footSide = 1;
+        if (glbMixer && glbIntroAction && glbColossusClip) {
+          const dur = glbColossusClip.duration || 1;
+          const phase = ((glbIntroAction.time % dur) + dur) % dur / dur; // 0..1 within the clip
+          const prev = game.introClipPhaseLast;
+          const contacts = WALK.introFootContacts || [0.1, 0.6];
+          for (let ci = 0; ci < contacts.length; ci += 1) {
+            const p = contacts[ci];
+            const crossed = prev <= phase ? (prev < p && p <= phase) : (p > prev || p <= phase); // handle the loop wrap
+            if (crossed) { footfall = true; footSide = ci % 2 === 0 ? 1 : -1; }
+          }
+          game.introClipPhaseLast = phase;
+        } else {
+          const step = Math.floor((t * WALK.introCadence) / Math.PI);
+          if (step !== game.introStepLast) { game.introStepLast = step; footfall = true; footSide = step % 2 === 0 ? 1 : -1; }
+        }
+        if (footfall) {
+          spawnIntroDust(c.position.x + dirX * 3, GROUND_Y, c.position.z + dirZ * 3 + footSide * COLOSSUS.legSeparation);
           game.introShake = 0.6;
           try {
             blip({ type: "sine", freq: 40, dur: 0.3, gain: 0.16, freqEnd: 22 });
@@ -7575,37 +8632,40 @@
         // pulse the eye / sigil glow
         const P = c.userData && c.userData.parts;
         if (P && P.sigil && P.sigil.material) P.sigil.material.opacity = 0.7 + 0.3 * Math.sin(t * 3);
+        // drift the god-ray shaft opacity for a living, hazy SotC sky
+        if (introEnv && introEnv.userData.shafts) { const S = introEnv.userData.shafts; for (let i = 0; i < S.length; i += 1) { if (S[i].material) S[i].material.opacity = 0.055 + 0.045 * Math.sin(t * 0.3 + i * 1.3); } }
         // -------------------------------------------------------------------------------------------
-        // EXTERIOR NO-CLIP CAMERA PATH (provable for EVERY t in [0,DUR]). The beast is enclosed by a
-        // bounding cylinder of radius R_COL≈44 about its root (cx, z=-75) — that radius covers the head
-        // jut, the swung arms and the mane fur with margin. The camera is PINNED to a circle of horizontal
-        // radius D (>= R_COL + 14) in the FRONT (+z) hemisphere, and never below GROUND_Y + 13. Therefore:
-        //   • horizontal distance camera->root === D > R_COL  -> never inside the body, at ANY height;
-        //   • camera.y >= GROUND_Y + 13 (> tallest near-rock top GROUND_Y+6.5) -> never in the ground/clutter;
-        //   • camera.z = -75 + D·cos(az) ≈ -15..-20 (cos(az) >= 0.91) -> always well in front of the ruins (z<=-62).
-        // Every term below ramps across the FULL 0->DUR so the shot is continuous motion (dolly+crane+arc+
-        // march), never a quick move then a static hold. The footfall shake (sh) is tiny (<0.6) vs the 14u margin.
+        // LOW, CLOSE, LOOKING-UP camera that TRACKS the lumbering colossus and slowly PANS while CRANING the gaze
+        // UP its body. The giant is deliberately TOO BIG to fit — its crown leaves frame early (that's the scale
+        // cue), then the slow up-tilt travels legs -> torso -> head to reveal the whole beast. It HUGS the sand so
+        // the foreground rocks sweep across the lower frame (parallax). This is NOT a dolly-out: pulling back to
+        // fit the whole figure shrinks it and reads as normal-sized — staying low + close is what sells the mass.
+        // D stays >> the ~30u body radius for every t, so the camera never enters the legs. Shake (sh) is tiny.
         game.introShake = Math.max(0, game.introShake - dt * 2.2);
         const sh = game.introShake;
         const tt = performance.now() / 1000;
-        const cx = c.position.x;
+        const cx = c.position.x, cz = c.position.z;
         const u = Math.min(1, t / DUR);            // 0..1 over the whole shot
-        const ease = u * u * (3 - 2 * u);          // smoothstep crane (slow start + settle)
-        const D = 66 - 8 * u;                       // slow exterior DOLLY-IN, 66 -> 58 (always > R_COL+14)
-        const az = -0.42 + 0.72 * u;               // slow front-ARC sweep, -24° -> +17° (cos(az) stays >= 0.91)
-        const camY = GROUND_Y + 13 + ease * 28;    // low CRANE up, 13 -> 41 above the sand
+        const ease = u * u * (3 - 2 * u);          // smoothstep (slow start + settle)
+        const D = 108 - 6 * ease;                  // CLOSE but enough for the now-taller colossus to LOOM; tiny push-in (much calmer)
+        const az = -0.26 + 0.26 * u;               // GENTLE pan (was -0.5..+0.05 -> too much movement; scale only hit at the end). Steadier = scale reads throughout
+        const camY = GROUND_Y + 4 + ease * 5;      // low + STEADY to the sand (steep look-up), minimal rise
         camera.position.set(
           cx + D * Math.sin(az) + Math.sin(tt * 46) * sh * 0.5,
           camY + Math.cos(tt * 39) * sh * 0.6,
-          -75 + D * Math.cos(az),
+          cz + D * Math.cos(az),
         );
-        camera.lookAt(cx + 4, GROUND_Y + 28 + 52 * u, -75); // pan UP the towering body (mid-body -> crown)
+        // Keep the gaze on the WALKING LOWER BODY (thick legs mid-stride, big stomping feet, the swaying tail, stone
+        // greaves) with only a gentle crane up to the belly — the torso/shoulders/head loom ABOVE the frame the whole
+        // time (that's the scale cue), and the foreground rocks keep sweeping the bottom. This lower-body stride shot
+        // is the most evocative read; craning all the way up turns the blocky torso into abstract slabs.
+        camera.lookAt(cx, GROUND_Y + 34 + 18 * ease, cz); // aim UP the body from the START (it looms early), only a small crane
         camera.rotation.z += Math.sin(tt * 0.5) * 0.01;
         // tiny foreground Santiago for SCALE — planted on the sand 24u along the line toward the beast (well
         // beyond the 0.1 near plane), so it sits low in frame and can NEVER cause a near-clip.
         if (introSilhouette) {
           const fx = cx - camera.position.x;
-          const fz = -75 - camera.position.z;
+          const fz = cz - camera.position.z;
           const fl = Math.hypot(fx, fz) || 1;
           introSilhouette.position.set(camera.position.x + (fx / fl) * 24, GROUND_Y, camera.position.z + (fz / fl) * 24);
           introSilhouette.rotation.y = 0;
@@ -7644,6 +8704,14 @@
           if (P.head) P.head.rotation.z = P.headBaseZ;
         }
         if (introSilhouette) introSilhouette.visible = false;
+        if (introForeground) introForeground.visible = false; // hide the intro-only foreground rocks
+        // KEEP the SotC valley as the GAMEPLAY backdrop (you fight while travelling through it). Switch it to the
+        // gameplay atmosphere: hide the pale intro skydome + god-rays so the moody gameplay fog grades the cliffs.
+        // The old parallax desert stays HIDDEN (introEnv's ground replaces it; the basin would z-fight it).
+        if (introEnv) { introEnv.visible = true; if (introEnv.userData.sky) introEnv.userData.sky.visible = false; if (introEnv.userData.shafts) for (const s of introEnv.userData.shafts) s.visible = false; }
+        if (groups.terrain) groups.terrain.visible = true; // restore the climb scene hidden during the cinematic
+        if (scene.fog) { scene.fog.density = introFogDensity; scene.fog.color.set(introFogColorHex); } // restore the gameplay fog/sky
+        if (scene.background && scene.background.set) scene.background.set(introBgHex);
         const hud = document.querySelector(".hud"); // restore the gameplay HUD/controls
         if (hud) {
           hud.style.opacity = "";
@@ -8376,7 +9444,7 @@
                 game.invincible <= 0 &&
                 game.godMode <= 0;
               if (hit) {
-                damagePlayer(9 + game.wave * 0.8, { source: "tremor" });
+                damagePlayer(13 + game.wave * 1.2, { source: "tremor" });
                 damageStreak({ source: "tremor" });
                 game.stagger = Math.max(game.stagger, 0.22);
                 const shove = player.pos.clone().sub(z.pos);
@@ -8412,7 +9480,7 @@
                 if (out.lengthSq() < 0.01) out.set(0, 1);
                 if (e.knockVel) e.knockVel.addScaledVector(out.normalize(), 13);
                 e.slowed = Math.max(e.slowed, 3);
-                damageEnemy(e, z.damage, out);
+                elementHit(e, z.damage, "water", out); // water-wave carries the weakness multiplier
               }
             }
           }
@@ -8635,8 +9703,8 @@
       }
 
       function resetWorldTheme() {
-        scene.background.set(0x9ea596);
-        scene.fog.color.set(0x9ea596);
+        scene.background.set(0x6b6f62);
+        scene.fog.color.set(0x6b6f62);
         scene.fog.density = 0.014;
         hemi.color.set(0xd8ded0);
         hemi.groundColor.set(0x3c4036);
