@@ -1518,6 +1518,7 @@
       let glbColossusClip = null, glbMixer = null, glbIntroAction = null; // the Mixamo walk clip + its AnimationMixer + the playing action (rigged intro colossus)
       let introSilhouette = null; // tiny foreground figure looking up (conveys the beast's scale)
       let introForeground = null; // near-field rock field that sweeps the lower frame during the intro (parallax/scale)
+      let travelBand = null, bandScroll = 0; // gameplay-only forward-travel ruins band beside the body (declared early — built during buildTerrain)
       const introDust = []; // short-lived footfall dust puffs spawned during the intro cinematic
       let introFadeEl = null; // DOM black fade layer for the intro -> gameplay transition
       let introFogDensity = 0.014; // saved gameplay fog density (the cinematic clears the air, then restores this)
@@ -1987,6 +1988,12 @@
         if (streak >= 50) return 0.12;
         if (streak >= 15) return 0.06;
         return 0;
+      }
+
+      // Overall pace ramp applied to BOTH player and mob base speed: 1.0 at wave 1 → 1.25 at wave 15
+      // (capped), so the whole game gets ~25% more frenetic by the finale while relative speeds hold.
+      function wavePace(wave) {
+        return 1 + Math.min(0.25, Math.max(0, (wave - 1) * (0.25 / 14)));
       }
 
       const ELEMENTS = [
@@ -2582,7 +2589,7 @@
 
       function exportGameplayLogObject() {
         return {
-          version: "2026-06-07d-v4.5-hud-fix",
+          version: "2026-06-08b-v4.7-forward-lunge",
           exportedAt: new Date().toISOString(),
           userAgent: navigator.userAgent,
           viewport: { width: window.innerWidth, height: window.innerHeight, dpr: window.devicePixelRatio },
@@ -2773,7 +2780,7 @@
         // Incentivized speed: a sustained streak-tier bonus (the "level" you've earned) + a short-lived
         // kill-momentum boost (chain kills to stay fast). Makes it a fluid movement brawler.
         const flow = 1 + streakSpeedBonus(game.streak) + game.momentum * 0.18;
-        const travelSpeed = game.state === "clear" ? 4.4 : game.state === "victory" ? 3.7 : 3.5;
+        const travelSpeed = game.state === "clear" ? 4.4 : game.state === "victory" ? 3.7 : 3.5 * wavePace(game.wave);
         const speed = travelSpeed * contactSlow * chargeSlow * god * sprint * (game.state === "wave" ? flow : 1);
 
         if (move.lengthSq() > 0.002 && canMove) {
@@ -3754,32 +3761,14 @@
         const baseDamage = BASE_ATTACK_DAMAGE * (1 + c * 1.7) * (game.godMode > 0 ? 2.2 : 1);
         const damage = maxCharged ? baseDamage * 2 : baseDamage;
 
-        // Committed charged swing: a short auto-aimed lunge (touch-imprecision insurance) plus
-        // hyperarmor i-frames so "plant your feet and break the shield" is never a death sentence.
+        // Committed charged swing: a short lunge STRAIGHT FORWARD (in Santiago's facing direction —
+        // no auto-aim, so it's predictable) plus hyperarmor i-frames so committing isn't a death sentence.
         if (charged) {
           game.invincible = Math.max(game.invincible, 0.3);
-          let best = null;
-          let bd = 1e9;
-          const f0 = player.facing.clone().normalize();
-          for (const e of game.enemies) {
-            if (e.dead || e.intangible) continue;
-            const v = e.pos.clone().sub(player.pos);
-            const d = v.length();
-            if (d < 0.3 || d > 3.4) continue;
-            if (v.multiplyScalar(1 / d).dot(f0) < 0.4) continue;
-            const priority = d - (e.shielded || e.type === "brute" || e.type === "boss" ? 1.4 : 0);
-            if (priority < bd) {
-              bd = priority;
-              best = e;
-            }
-          }
-          if (best) {
-            const toBest = best.pos.clone().sub(player.pos);
-            const reach = best.radius + player.radius + 0.15;
-            const lunge = Math.min(1.6, Math.max(0, toBest.length() - reach));
-            if (lunge > 0.05) player.pos.addScaledVector(toBest.clone().normalize(), lunge);
-            player.facing.copy(best.pos.clone().sub(player.pos).normalize());
-          }
+          const f0 = player.facing.clone();
+          if (f0.lengthSq() < 0.001) f0.set(0, 1);
+          f0.normalize();
+          player.pos.addScaledVector(f0, 1.4); // arena bounds are re-clamped next frame in updatePlayer
         }
 
         const facing = player.facing.clone().normalize();
@@ -5491,7 +5480,9 @@
         // behavior or threaten. More HP late-game lets monsters ACT (so they read as distinct) and
         // restores difficulty for the now-faster player.
         let hp = 1.5 + wave * 0.15;
-        let speed = 1.42 + wave * 0.03;
+        // Shared pace ramp (same curve as the player) instead of the old flat wave*0.03, so mobs are
+        // ~25% faster by wave 15 in lockstep with Santiago — faster overall, relative balance preserved.
+        let speed = 1.42 * wavePace(wave);
         let radius = 0.46;
         let contactDamage = 5.8;
         let name = "Ash Dead";
@@ -6768,6 +6759,43 @@
           d.rotation.set(0, rand(-0.1, 0.1), 0);
           return x;
         }, WALK.nearParallax * 1.15); // streaks slightly faster still — the closest read
+        buildTravelBand(); // gameplay-only forward-travel band that RECEDES beside the body (real travel, no clipping)
+      }
+
+      // FORWARD-TRAVEL BAND — SotC ruins/rocks in two strips BESIDE the climb body (x kept well clear of the centre
+      // play strip, so they NEVER cross/occlude gameplay) that RECEDE into the fog as the colossus strides forward,
+      // looping seamlessly via per-element OPACITY fade (no pop). This is the real "travelling across the land" cue
+      // without sliding the world through the body. Gameplay-only (hidden during the intro). Built headless-safe.
+      function buildTravelBand() {
+        const band = new THREE.Group();
+        const rng = seededRand(0x7eaa11);
+        const rr = (lo, hi) => lo + rng() * (hi - lo);
+        const mk = (base) => { const m = base.clone(); m.transparent = true; return m; };
+        const items = [];
+        const N = 14, NEAR = -24, FAR = -190, SPAN = NEAR - FAR; // band depth window (beside + behind the body)
+        for (let i = 0; i < N; i += 1) {
+          const side = i % 2 ? 1 : -1;
+          const x = side * rr(70, 150); // beside the body (body radius ~30) -> 40u+ clear of the centre play strip
+          const baseZ = FAR + (i / N) * SPAN; // spread evenly through the band so something's always mid-frame
+          let el; const ms = []; const t = rng();
+          if (t < 0.46) { // broken column + toppled capital (ruin) — TALL so it rises past the body into frame
+            el = new THREE.Group(); const h = rr(30, 64); const cm = mk(mats.stone), capm = mk(mats.stoneDark); ms.push(cm, capm);
+            const col = new THREE.Mesh(new THREE.CylinderGeometry(rr(2.6, 4.0), rr(3.2, 4.8), h, 9), cm); col.position.y = h / 2; el.add(col);
+            const cap = new THREE.Mesh(new THREE.BoxGeometry(rr(8, 12), rr(2.2, 3.6), rr(8, 12)), capm); cap.position.y = h; cap.rotation.set(rr(-0.2, 0.2), rr(0, 1.2), rr(-0.2, 0.2)); el.add(cap);
+            el.position.set(x, GROUND_Y, baseZ);
+          } else if (t < 0.72) { // weathered rock chunk
+            const m = mk(mats.stoneDark); ms.push(m); const s = rr(11, 24);
+            el = new THREE.Mesh(new THREE.DodecahedronGeometry(s, 0), m); el.rotation.set(rng() * 3, rng() * 3, rng() * 3); el.position.set(x, GROUND_Y + s * 0.2, baseZ);
+          } else { // sheared mesa block — TALL
+            const m = mk(mats.stone); ms.push(m); const h = rr(34, 74);
+            el = new THREE.Mesh(new THREE.BoxGeometry(rr(16, 32), h, rr(16, 32)), m); el.rotation.y = rng() * Math.PI; el.position.set(x, GROUND_Y + h / 2, baseZ);
+          }
+          el.frustumCulled = false; band.add(el); items.push({ el, baseZ, mats: ms });
+        }
+        band.userData = { items, NEAR, FAR, SPAN };
+        band.visible = false; // gameplay-only; revealed in updateWorld
+        groups.world.add(band);
+        travelBand = band;
       }
 
       // Continuous forward PARALLAX of the distant desert/ruins (the headline "we're walking through the
@@ -6993,6 +7021,30 @@
           }
         }
         updateDesertScroll(realDt); // endless forward parallax of the desert/ruins, on top of the sway/bob
+        updateTravelBand(realDt); // ruins beside the body RECEDE into the fog -> real forward travel (loops via opacity)
+      }
+
+      // Recede the forward-travel band beside the body and loop it via opacity fade. RUNS ONLY in gameplay (updateWorld
+      // is the gameplay tick), so the band is revealed here and stays hidden during the intro. The band lives in two
+      // side strips (x >= 80) that never reach the centre play strip, so it can never clip/occlude the climb.
+      function updateTravelBand(realDt) {
+        if (!travelBand) return;
+        travelBand.visible = true;
+        const ud = travelBand.userData, items = ud.items, SPAN = ud.SPAN, NEAR = ud.NEAR, FAR = ud.FAR;
+        const stride = 0.5 - 0.5 * Math.cos(walkPhase * 2); // per-FOOTSTEP surge (the weight drives the stride forward)
+        const drive = 0.42 + 0.58 * stride; // steady creep + a clear per-step surge
+        bandScroll += WALK.scrollSpeed * drive * realDt * 0.5; // a touch slower than the far parallax (mid-ground depth)
+        for (let i = 0; i < items.length; i += 1) {
+          const it = items[i];
+          let z = it.baseZ - (((bandScroll % SPAN) + SPAN) % SPAN); // RECEDE toward -z as we advance
+          if (z < FAR) z += SPAN; // wrap (seamless loop)
+          it.el.position.z = z;
+          // fade IN just past NEAR, hold, fade OUT into the fog near FAR -> the wrap is invisible (no pop)
+          const fadeIn = Math.min(1, (NEAR - z) / 24);
+          const fadeOut = Math.min(1, (z - FAR) / 30);
+          const op = Math.max(0, Math.min(fadeIn, fadeOut));
+          for (let m = 0; m < it.mats.length; m += 1) it.mats[m].opacity = op;
+        }
       }
 
       // The climbed body: ONE lumpy, asymmetric organic mesh sampled from BODY_PROFILE. Real SotC
@@ -8472,6 +8524,7 @@
         colossusCreature.position.set(game.introStartX, GROUND_Y, game.introStartZ);
         colossusCreature.visible = true;
         if (introSilhouette) introSilhouette.visible = false; // REMOVED per feedback (the tiny hooded scale figure read as a stray "dark character")
+        if (travelBand) travelBand.visible = false; // the forward-travel band is gameplay-only (re-revealed by updateWorld)
         if (introForeground) introForeground.visible = true; // near-field rocks/trees/pillars sweep the lower frame (parallax/scale)
         // SOTC INTRO ENVIRONMENT (built lazily on first intro): a Forbidden-Lands valley encircling the low
         // camera. Show it and HIDE the gameplay parallax desert (basin + scrolling ruins) so they don't double
