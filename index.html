@@ -138,6 +138,23 @@
         transition-duration: 50ms;
       }
 
+      /* Persistent cool veil while the SLOW special's bullet-time is active. */
+      .time-veil {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        z-index: 4;
+        opacity: 0;
+        background:
+          radial-gradient(circle at 50% 50%, transparent 42%, rgba(58, 166, 255, 0.22) 100%),
+          linear-gradient(180deg, rgba(20, 60, 110, 0.06), rgba(20, 60, 110, 0.1));
+        transition: opacity 320ms ease;
+      }
+
+      .time-veil.active {
+        opacity: 1;
+      }
+
       .shake-flash {
         z-index: 4;
         opacity: 0;
@@ -289,7 +306,7 @@
         height: 100%;
         border-radius: inherit;
         transform-origin: left center;
-        transition: transform 120ms linear;
+        transition: transform 160ms cubic-bezier(0.22, 0.61, 0.36, 1);
       }
 
       .health i {
@@ -298,6 +315,7 @@
 
       .charge i {
         background: linear-gradient(90deg, #65d5ff, #fff6e8);
+        transition: transform 90ms ease-out; /* SHORT so the charge bar never lags far enough to misread readiness */
       }
 
       .boss-row {
@@ -310,6 +328,7 @@
 
       .boss i {
         background: linear-gradient(90deg, #5a0b0b, #ce1c2a, #ff8a3d);
+        transition: transform 240ms cubic-bezier(0.22, 0.61, 0.36, 1);
       }
 
       .toast {
@@ -330,8 +349,8 @@
         opacity: 0;
         transform: translateY(12px) scale(0.98);
         transition:
-          opacity 180ms ease,
-          transform 180ms ease;
+          opacity 200ms ease,
+          transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1);
         backdrop-filter: blur(18px);
       }
 
@@ -968,6 +987,7 @@
       <div class="grain"></div>
       <div class="damage-flash" id="damageFlash"></div>
       <div class="fx-pulse" id="fxPulse"></div>
+      <div class="time-veil" id="timeVeil"></div>
       <div class="shake-flash" id="shakeFlash"></div>
       <div class="scanlines"></div>
       <div class="pause-overlay" id="pauseOverlay">
@@ -1103,6 +1123,7 @@
       const stickZone = document.getElementById("stickZone");
       const stickKnob = document.getElementById("stickKnob");
       const damageFlash = document.getElementById("damageFlash");
+      const timeVeil = document.getElementById("timeVeil");
       const fxPulse = document.getElementById("fxPulse");
       const shakeFlash = document.getElementById("shakeFlash");
       const floatersEl = document.getElementById("floaters");
@@ -1504,10 +1525,36 @@
       const MAX_HEALTH = 100;
       const BASE_ATTACK_RADIUS = 2.12;
       const BASE_ATTACK_DAMAGE = 1.1;
-      const ACTIVE_CAP = 22;
+      const ACTIVE_CAP = 40; // hard ceiling on concurrent enemies (raised so the denser late waves can put ~2x on the field)
+      // Concurrent-enemy cap per wave. Late waves (12+) get a steep bonus so ~2x can spawn during the wave (per playtest).
+      function activeCapFor(w) { return Math.min(ACTIVE_CAP, 8 + Math.floor(w * 0.7) + (w >= 12 ? (w - 11) * 4 : 0)); }
       const EFFECT_CAP = 360;
       const WORLD_TOP = STAGE_HEIGHT * STAGE_COUNT;
       const GROUND_Y = -55; // colossus foot anchor; the SotC desert floor sits here
+      // ====================================================================================
+      // ANIM EASING HELPERS (PRESENTATION-ONLY game-feel). Shared so every juiced animation uses the same
+      // framerate-correct curves. damp() is exponential smoothing (lambda = rate; bigger = snappier) that is
+      // FRAMERATE-CORRECT (replaces linear `x += (t-x)*dt*k` / `x -= dt*k` which vary with FPS). The eased
+      // curves take a 0..1 progress and return a shaped 0..1 (easeOutBack overshoots past 1 for pops/settle).
+      // These ONLY shape VISUAL values (transforms/opacity/camera/HUD) — never gameplay state. Math-only -> headless-safe.
+      const easeClamp01 = (t) => (t < 0 ? 0 : t > 1 ? 1 : t);
+      function damp(current, target, lambda, dt) { return target + (current - target) * Math.exp(-lambda * dt); }
+      function smoothstep01(t) { t = easeClamp01(t); return t * t * (3 - 2 * t); }
+      function easeOutCubic(t) { t = easeClamp01(t); return 1 - Math.pow(1 - t, 3); }
+      function easeInCubic(t) { t = easeClamp01(t); return t * t * t; }
+      function easeInOutCubic(t) { t = easeClamp01(t); return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
+      function easeOutSine(t) { t = easeClamp01(t); return Math.sin((t * Math.PI) / 2); }
+      function easeInQuad(t) { t = easeClamp01(t); return t * t; }
+      function easeOutBack(t, s = 1.70158) { t = easeClamp01(t); return 1 + (s + 1) * Math.pow(t - 1, 3) + s * Math.pow(t - 1, 2); }
+      // Attack swing shape (raw 0..1 over the visual swing window) — anticipation (reverse wind-up) -> fast SNAP ->
+      // overshoot settle. Shared by the Santiago rig AND the swinging-axe trail so they stay in lockstep. Returns a
+      // 0..~1.06 swing amount. PURELY VISUAL — never feeds damage/active-frames (damage resolves before the anim window).
+      function attackSwingCurve(raw) {
+        raw = easeClamp01(raw);
+        if (raw < 0.15) return -0.14 * easeOutCubic(raw / 0.15); // coil BACK (anticipation wind-up)
+        if (raw < 0.42) return easeOutCubic((raw - 0.15) / 0.27) * 1.08; // fast SNAP to peak (slight overshoot)
+        return 1.08 * (1 - easeInOutCubic((raw - 0.42) / 0.58)); // ease back to REST (follow-through) -> ends at 0, no snap-back pop
+      }
       let dust = null;
       let walkPhase = 0;
       let sigilTex = null; // cached glowing-sigil glyph texture
@@ -1765,6 +1812,7 @@
         streakPointerMoved: false,
         streakPointerStartY: 0,
         earnedThresholds: new Set(),
+        unlocks: { spells: false, streaks: false, mix2: false, mix3: false }, // boss-gated kit: Tyrant->elemental spells, Warden->streak bank, Alpha->2-element mixing, Conduit->3-element mixing
         spawned: 0,
         waveTotal: 3,
         spawnTimer: 0,
@@ -1790,9 +1838,28 @@
         speedBoost: 0,
         kidHunt: 0,
         kidHuntDamage: 0,
+        worldSlow: 0, // SLOW special: seconds the world (not the player) is time-slowed
+        windFrenzy: 0, // WIND spell: seconds the kids' whirlwind follows the player
+        windFrenzyR: 8, // wind frenzy radius
+        windTick: 0, // throttle for wind-frenzy damage/sparks (so it isn't per-frame)
+        comboEls: {}, // element -> last-cast time, for the synergy cast-stack window
+        comboPos: null,
         autoDeflect: 0,
         invincible: 0,
         godMode: 0,
+        // streak-special timed states (mega-suite rework)
+        phaseDash: 0, // Sprint: 3x speed + holo shell + insta-kill on contact
+        phaseShell: null, // Sprint holo-shell mesh
+        twinHunt: 0, // Twin Hunt: 2 lead kids supersized, insta-execute, roaming
+        carnage: 0, // Carnage: spectral blade-storm aura around the player
+        carnageTick: 0,
+        fireworksT: 0, // Fireworks: kid firework barrage timer
+        fireworksGap: 0,
+        fistPhase2: 0, // Fist: delay before the linear fist drops on the next batch
+        fistDmg: 0,
+        geyser: 0, // Geyser: water-laser-beam timer
+        geyserTick: 0,
+        geyserMesh: null,
         timeScale: 1,
         hitStop: 0,
         slowMo: 0,
@@ -1881,6 +1948,7 @@
         {
           name: "Santiago",
           group: createKid(0xd23a28, 0.58),
+          baseScale: 0.58, // natural group scale — Twin Hunt supersizes from this, then restores to it
           pos: new THREE.Vector2(-0.55, -5.95),
           delay: 0.45,
           attackTimer: 0.55,
@@ -1888,6 +1956,7 @@
         {
           name: "Sebastian",
           group: createKid(0x65d5ff, 0.52),
+          baseScale: 0.52,
           pos: new THREE.Vector2(0.55, -6.55),
           delay: 0.9,
           attackTimer: 1.05,
@@ -1905,28 +1974,30 @@
       };
 
       const STREAK_SPECIALS = [
-        { threshold: 5, id: "kid-slow", label: "Kid Slow", effect: "slow", radius: 4.6, damage: 0.2 },
-        { threshold: 10, id: "kid-stun", label: "Kid Stun", effect: "stun", radius: 4.8, damage: 0.4 },
-        { threshold: 15, id: "spark-sweep", label: "Spark", effect: "buffHit", radius: 0, damage: 0 },
-        { threshold: 20, id: "sprint-orb", label: "Sprint", effect: "speed", radius: 0, damage: 0 },
-        { threshold: 25, id: "champagne-mortars", label: "Mortars", effect: "mortar", radius: 6, damage: 7 },
+        // Earned milestones — every one is now a devastating payoff (the CC ones nuke too). Numbers
+        // are far above the nerfed elements so a streak cast always out-damages a regular spell.
+        { threshold: 5, id: "time-slow", label: "Slow", effect: "slow", radius: 6, damage: 10 },
+        { threshold: 10, id: "kid-stun", label: "Kid Stun", effect: "stun", radius: 5.4, damage: 14 },
+        { threshold: 15, id: "spark-sweep", label: "Spark", effect: "buffHit", radius: 5.5, damage: 12 },
+        { threshold: 20, id: "sprint-orb", label: "Sprint", effect: "phasedash", radius: 0, damage: 0 },
+        { threshold: 25, id: "champagne-mortars", label: "Mortars", effect: "mortar", radius: 7, damage: 16 },
         { threshold: 40, id: "deflect-aura", label: "Deflect", effect: "deflect", radius: 0, damage: 0 },
-        { threshold: 50, id: "firework-strafe", label: "Strafe", effect: "strafe", radius: 6, damage: 7 },
+        { threshold: 50, id: "firework-strafe", label: "Strafe", effect: "strafe", radius: 7, damage: 16 },
         { threshold: 75, id: "carnage-mode", label: "Carnage", effect: "carnage", radius: 0, damage: 0 },
-        { threshold: 100, id: "santiago-wrath", label: "Wrath", effect: "clear", radius: 20, damage: 99 },
-        { threshold: 125, id: "kid-raid", label: "Kid Raid", effect: "kidHunt", radius: 8.2, damage: 7 },
-        { threshold: 150, id: "spectral-rush", label: "Rush", effect: "sweep", radius: 9, damage: 8 },
-        { threshold: 175, id: "sky-split", label: "Sky Split", effect: "rift", radius: 9, damage: 9 },
-        { threshold: 200, id: "champagne-fire", label: "Toast", effect: "champagne", radius: 8.2, damage: 8 },
-        { threshold: 250, id: "colossus-fist", label: "Fist", effect: "fist", radius: 10, damage: 16 },
-        { threshold: 300, id: "twin-execute", label: "Twin Hunt", effect: "kidHunt", radius: 11, damage: 999 },
-        { threshold: 350, id: "root-trap", label: "Roots", effect: "root", radius: 8, damage: 2 },
-        { threshold: 425, id: "titan-step", label: "Titan Step", effect: "titan", radius: 11, damage: 16 },
-        { threshold: 500, id: "meteor-storm", label: "Meteors", effect: "meteorstorm", radius: 11, damage: 16 },
+        { threshold: 100, id: "santiago-wrath", label: "Wrath", effect: "wrath", radius: 22, damage: 120 },
+        { threshold: 125, id: "kid-raid", label: "Kid Raid", effect: "kidHunt", radius: 8.2, damage: 14 },
+        { threshold: 150, id: "spectral-rush", label: "Rush", effect: "sweep", radius: 10, damage: 20 },
+        { threshold: 175, id: "sky-split", label: "Matrix Split", effect: "rift", radius: 13, damage: 24 },
+        { threshold: 200, id: "champagne-fire", label: "Toast", effect: "incinerate", radius: 10, damage: 22 },
+        { threshold: 250, id: "colossus-fist", label: "Fist", effect: "fist", radius: 11, damage: 30 },
+        { threshold: 300, id: "twin-execute", label: "Twin Hunt", effect: "twinhunt", radius: 11, damage: 999 },
+        { threshold: 350, id: "root-trap", label: "Roots", effect: "root", radius: 10, damage: 22 },
+        { threshold: 425, id: "titan-step", label: "Titan Step", effect: "titan", radius: 12, damage: 32 },
+        { threshold: 500, id: "meteor-storm", label: "Meteors", effect: "meteorstorm", radius: 12, damage: 30 },
         { threshold: 600, id: "solar-rush", label: "Solar Rush", effect: "speed", radius: 0, damage: 0 },
-        { threshold: 650, id: "mini-god", label: "Barrage", effect: "barrage", radius: 8.5, damage: 12 },
-        { threshold: 750, id: "heart-storm", label: "Heart Storm", effect: "heartstorm", radius: 13, damage: 18 },
-        { threshold: 850, id: "meteor-chain", label: "Meteor", effect: "meteor", radius: 13, damage: 22 },
+        { threshold: 650, id: "mini-god", label: "Barrage", effect: "barrage", radius: 10, damage: 28 },
+        { threshold: 750, id: "heart-storm", label: "Heart Storm", effect: "heartstorm", radius: 14, damage: 36 },
+        { threshold: 850, id: "meteor-chain", label: "Meteor", effect: "meteor", radius: 14, damage: 44 },
         { threshold: 900, id: "climb-frenzy", label: "Frenzy", effect: "frenzy", radius: 0, damage: 0 },
         { threshold: 1000, id: "starfall-nuke", label: "NUKE", effect: "nuke", radius: 24, damage: 999 },
       ];
@@ -1943,14 +2014,14 @@
         {
           id: "champagne-geyser",
           label: "Geyser",
-          effect: "champagne",
+          effect: "geyser",
           radius: 10,
           damage: 18,
           birthday: true,
         },
         {
           id: "pool-party-doom",
-          label: "Pool Doom",
+          label: "Cataclysm",
           effect: "clear",
           radius: 24,
           damage: 120,
@@ -1990,17 +2061,19 @@
         return 0;
       }
 
-      // Overall pace ramp applied to BOTH player and mob base speed: 1.0 at wave 1 → 1.25 at wave 15
-      // (capped), so the whole game gets ~25% more frenetic by the finale while relative speeds hold.
+      // Overall pace ramp applied to BOTH player and mob base speed: 1.0 at wave 1 → 1.35 at wave 15
+      // (capped), so the whole game gets ~35% more frenetic by the finale while relative speeds hold.
       function wavePace(wave) {
-        return 1 + Math.min(0.25, Math.max(0, (wave - 1) * (0.25 / 14)));
+        return 1 + Math.min(0.35, Math.max(0, (wave - 1) * (0.35 / 14)));
       }
 
+      // Regular pickup spells — deliberately modest now (they were out-damaging the earned kill-streak
+      // milestones). They chip/control; the streak specials are the devastating payoffs.
       const ELEMENTS = [
-        { id: "fire", label: "Fire", effect: "fire", color: 0xff6a1a, radius: 6.6, damage: 6 },
-        { id: "lightning", label: "Lightning", effect: "lightning", color: 0x9be7ff, radius: 8.2, damage: 5 },
-        { id: "water", label: "Water", effect: "water", color: 0x3aa6ff, radius: 7.6, damage: 4 },
-        { id: "wind", label: "Wind", effect: "wind", color: 0x9be3b0, radius: 9.2, damage: 3.6 },
+        { id: "fire", label: "Fire", effect: "fire", color: 0xff6a1a, radius: 6.2, damage: 4 },
+        { id: "lightning", label: "Lightning", effect: "lightning", color: 0x9be7ff, radius: 7.6, damage: 3 },
+        { id: "water", label: "Water", effect: "water", color: 0x3aa6ff, radius: 7.0, damage: 2.6 },
+        { id: "wind", label: "Wind", effect: "wind", color: 0x9be3b0, radius: 8.4, damage: 2.2 },
       ];
       const ELEMENT_COLOR = { fire: 0xff6a1a, lightning: 0x9be7ff, water: 0x3aa6ff, wind: 0x9be3b0 };
 
@@ -2020,17 +2093,37 @@
         slammer: "water",
         basic: null,
       };
-      const BOSS_WEAKNESS = { father: "water", troll: "water", matron: "lightning", serpent: "fire", king: "lightning" };
+      // Re-themed boss weaknesses: Grave Tyrant(plant/flesh)=fire, Rune Warden(caster/metal)=lightning,
+      // Pack Alpha(flesh predators)=fire, Hex Conduit(floaty/explosive)=wind, Crown Colossus(stone)=lightning.
+      const BOSS_WEAKNESS = { tyrant: "fire", warden: "lightning", alpha: "fire", conduit: "wind", colossus: "lightning" };
       function weaknessOf(enemy) {
         return enemy.type === "boss" ? BOSS_WEAKNESS[enemy.kind] : WEAKNESS[enemy.type];
       }
       // Readable "weak!" feedback (extra element-colored sparks + a one-time teach).
       function markWeak(enemy, element) {
-        createHitSpark(enemy.pos, ELEMENT_COLOR[element] || 0xffffff, 5);
+        createHitSpark(enemy.pos, ELEMENT_COLOR[element] || 0xffffff, 6);
+        litUp(enemy, ELEMENT_COLOR[element] || 0xffffff);
         if (!game.weaknessTaught) {
           game.weaknessTaught = true;
           showToast("Elemental weakness — that foe takes DOUBLE from this element!", 3.0);
         }
+      }
+      // Light up a mob the spell is strong against: an element-colored glow that decays over ~1s.
+      function litUp(enemy, color) {
+        if (enemy.dead || !enemy.group) return;
+        if (enemy.litMesh) {
+          enemy.litT = 1;
+          enemy.litMesh.material.color.set(color);
+          return;
+        }
+        const glow = new THREE.Mesh(
+          new THREE.SphereGeometry((enemy.radius || 0.5) * 1.5, 10, 8),
+          new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false }),
+        );
+        glow.position.set(0, 0, 0.5);
+        enemy.group.add(glow);
+        enemy.litMesh = glow;
+        enemy.litT = 1;
       }
       // Apply an elemental hit with the 2x weakness multiplier + the weak feedback.
       function elementHit(enemy, baseDmg, element, dir) {
@@ -2041,6 +2134,7 @@
 
       buildTerrain();
       initGLBColossus(); // PROGRESSIVE ENHANCEMENT: async-load colossus.glb + swap it in (procedural until/if it lands)
+      initPlayerGLB(); // PROGRESSIVE ENHANCEMENT: async-load santiago.glb as the visible player (procedural until/if it lands)
       buildBirthdayStage();
       buildVictoryParty();
       updateActorTransforms();
@@ -2331,18 +2425,23 @@
           return;
         }
         if (game.started && game.state !== "dead") {
+          // SLOW special: time crawls for the whole WORLD (enemies/projectiles/hazards/spawns) while
+          // the player and kids keep moving at full speed. Just scale the world updates' dt.
+          const wDt = game.worldSlow > 0 ? dt * 0.32 : dt;
           updateTimers(dt);
           updateInputMovement();
           updatePlayer(dt);
           updateKids(dt);
-          updateWave(dt);
-          updatePendingSpawns(dt);
-          updateEnemies(dt);
-          separateEnemies(dt); // anti-bunching pass after movement
-          updateProjectiles(dt);
+          updateWave(wDt);
+          updatePendingSpawns(wDt);
+          updateEnemies(wDt);
+          separateEnemies(wDt); // anti-bunching pass after movement
+          // once the field is clear, let any in-flight miss run full speed so the wave-clear gate
+          // (which waits for projectiles.length===0) doesn't stall for seconds during a SLOW window.
+          updateProjectiles(game.enemies.length === 0 ? dt : wDt);
           updatePickups(dt);
           updateEffects(dt);
-          updateZones(dt);
+          updateZones(wDt);
           updateBirthdayInteract();
           updateHud();
         } else {
@@ -2589,7 +2688,7 @@
 
       function exportGameplayLogObject() {
         return {
-          version: "2026-06-08b-v4.7-forward-lunge",
+          version: "2026-06-08n-v5.8-warden-fix",
           exportedAt: new Date().toISOString(),
           userAgent: navigator.userAgent,
           viewport: { width: window.innerWidth, height: window.innerHeight, dpr: window.devicePixelRatio },
@@ -2604,6 +2703,160 @@
         console.log("[SantiagoWrath:EXPORT]", json);
         return json;
       }
+
+      // ===================== SANDBOX / PLAYTEST API (dev tool — driven by game/playtest.html) =====================
+      // Lets the separate playtest page enter gameplay, spawn a FROZEN ROW of invulnerable dummies, and fire ANY
+      // element / combo / kill-streak special on demand. The existing event log is observable via
+      // __SANTIAGO_WRATH__.debug.events. DEV-ONLY + INERT until start() is called: it only CALLS existing systems
+      // (executeSpecial / spawnEnemy / COMBO_TABLE) and sets sandbox-only state — it edits NO combat function.
+      (function attachSandbox() {
+        const W = window.__SANTIAGO_WRATH__; if (!W) return;
+        const SB = { on: false, opts: { dummies: 6, type: null, wave: 15, invuln: true, ai: false, respawn: true, shake: false, grade: false, hp: true }, _dmg: 0, _dmgAt: 0, _last: "" };
+        const REG_KINDS = ["basic", "crawler", "hugger", "ranged", "stalker", "shield", "lurker", "brute", "wisp", "bursar", "spitter", "slammer"];
+        const BOSS_KINDS = ["tyrant", "warden", "alpha", "conduit", "colossus"]; // boss SUB-types (createEnemy picks by wave; spawnOne forces it)
+        const BOSS_WAVE = { tyrant: 3, warden: 6, alpha: 9, conduit: 12, colossus: 15 };
+        const KIND_LABEL = { basic: "Grunt", crawler: "Crawler", hugger: "Hugger", ranged: "Shooter", stalker: "Stalker", shield: "Bulwark", lurker: "Lurker", brute: "Brute", wisp: "Wisp", bursar: "Bursar", spitter: "Spitter", slammer: "Stonebreaker", tyrant: "Boss: Grave Tyrant", warden: "Boss: Rune Warden", alpha: "Boss: Pack Alpha", conduit: "Boss: Hex Conduit", colossus: "Boss: Crown Colossus" };
+        function spawnOne(type) {
+          const sw = game.wave;
+          let w = SB.opts.wave || 1, t = type;
+          if (type && type.indexOf("boss:") === 0) { const k = type.slice(5); w = BOSS_WAVE[k] || 3; t = "boss"; } // boss KIND is wave-derived
+          game.wave = w; // scale hp/stats to the chosen wave
+          try { spawnEnemy(t || null); } finally { game.wave = sw; }
+        }
+        function captureGrade() { try { SB._g = { fc: scene.fog ? scene.fog.color.getHex() : 0x6b6f62, fd: scene.fog ? scene.fog.density : 0.014, sc: sun.color.getHex(), si: sun.intensity, hc: hemi.color.getHex(), hg: hemi.groundColor.getHex(), hi: hemi.intensity }; } catch (e) {} }
+        function applyGrade() {
+          retro.enabled = !!SB.opts.grade; // the SotC composite
+          if (!SB._g) return;
+          if (SB.opts.grade) { // CINEMATIC: restore the captured warm SotC fog + lighting
+            if (scene.fog) { scene.fog.color.setHex(SB._g.fc); scene.fog.density = SB._g.fd; }
+            sun.color.setHex(SB._g.sc); sun.intensity = SB._g.si;
+            hemi.color.setHex(SB._g.hc); hemi.groundColor.setHex(SB._g.hg); hemi.intensity = SB._g.hi;
+          } else { // CLEAN debug view: neutral grey haze (thinner) + bright WHITE light -> kills the warm "piss" cast
+            if (scene.fog) { scene.fog.color.setHex(0x9fa3a0); scene.fog.density = SB._g.fd * 0.4; }
+            sun.color.setHex(0xffffff); sun.intensity = 2.1;
+            hemi.color.setHex(0xeef1ee); hemi.groundColor.setHex(0x8c8e8a); hemi.intensity = 2.5;
+          }
+        }
+        let rowY0 = null, rowX0 = 0;
+        const rowY = () => (rowY0 != null ? rowY0 : (game.stageCenter || 0) + 2.6);
+        const captureRow = () => { rowY0 = ((player && player.pos ? player.pos.y : game.stageCenter) || 0) + 2.6; rowX0 = (player && player.pos ? player.pos.x : 0); }; // row sits just in FRONT of the player so casts (centered on the player) land
+        function removeDummy(e, idx) {
+          try { if (groups.actors && e.group) groups.actors.remove(e.group); if (typeof disposeObject === "function") disposeObject(e.group); } catch (x) {}
+          game.enemies.splice(idx, 1);
+        }
+        function maintainDummies(topUp) {
+          for (const e of game.enemies) { if (!e.dead && !e.sbDummy) { e.sbDummy = true; if (SB.opts.invuln) { e.maxHp = 999; e.hp = 999; } } } // adopt: invuln -> a 999-hp SPONGE you can chip (number ticks down + every hit logs); OFF -> REAL per-wave hp
+          let live = game.enemies.filter((e) => e.sbDummy && !e.dead);
+          if (live.length > SB.opts.dummies) { // CULL extras -> accumulation self-heals
+            let extra = live.length - SB.opts.dummies;
+            for (let i = game.enemies.length - 1; i >= 0 && extra > 0; i -= 1) { const e = game.enemies[i]; if (e.sbDummy && !e.dead) { removeDummy(e, i); extra -= 1; } }
+            live = game.enemies.filter((e) => e.sbDummy && !e.dead);
+          }
+          const pending = game.pendingSpawns ? game.pendingSpawns.length : 0;
+          if (topUp) { const need = SB.opts.dummies - live.length - pending; for (let i = 0; i < need; i += 1) { const t = SB.opts.type || REG_KINDS[(SB._mix = (SB._mix || 0) + 1) % REG_KINDS.length]; try { spawnOne(t); } catch (e) {} } live = game.enemies.filter((e) => e.sbDummy && !e.dead); }
+          const frozen = !SB.opts.ai;
+          live.forEach((e, i) => {
+            if (frozen) {
+              // STATIC but ALIVE: do NOT stun (stun short-circuits the real enemy update -> no burn/DoT + no scale).
+              // Instead pin it in place + mute its attacks, so the game's OWN burn/DoT, scaling + idle anim all run.
+              const x = rowX0 + (i - (live.length - 1) / 2) * 2.8, y = rowY();
+              if (e.pos && e.pos.set) e.pos.set(x, y);
+              if (e.group && e.group.position && typeof surfaceZ === "function") e.group.position.set(x, y, surfaceZ(x, y) + 0.03);
+              if (e.knockVel && e.knockVel.set) e.knockVel.set(0, 0);
+              e.cooldown = Math.max(e.cooldown || 0, 5); // keep resetting -> never fires while parked
+              e.charge = 0; e.lunge = 0; e.fuse = 0; e.blinkTel = 0; // suppress lunges/charges/fuses/blinks so the row stays put
+              e.spawnT = 1; // full size immediately
+            }
+            if (SB.opts.invuln && e.hp < 150) e.hp = e.maxHp; // refill before death (single hits cap ~120) so the sponge never dies
+          });
+        }
+        function trackDamage() {
+          let dmg = 0;
+          const cur = new Map();
+          for (const e of game.enemies) { if (e.sbDummy && !e.dead) cur.set(e.id, e.hp); }
+          if (SB._hpMap) { SB._hpMap.forEach((prev, id) => { if (cur.has(id)) { const lost = prev - cur.get(id); if (lost > 0.01) dmg += lost; } else if (prev > 0.01) dmg += prev; }); } // chipped survivors + hp removed by a KILLING blow
+          SB._hpMap = cur;
+          if (dmg > 0) SB._dmg += dmg;
+          const now = performance.now() / 1000;
+          if (SB._dmg > 0 && now - SB._dmgAt > 0.3) { if (typeof logEvent === "function") logEvent("sandbox-damage", { source: SB._last || "?", dealt: Math.round(SB._dmg) }); SB._dmg = 0; SB._dmgAt = now; }
+        }
+        let hpWrap = null; const hpPool = [];
+        function updateHpLabels() {
+          if (!SB.opts.hp) { if (hpWrap) hpWrap.style.display = "none"; return; }
+          if (!hpWrap) { hpWrap = document.createElement("div"); hpWrap.style.cssText = "position:fixed;left:0;top:0;pointer-events:none;z-index:50;font:700 12px ui-monospace,Menlo,monospace;"; document.body.appendChild(hpWrap); }
+          hpWrap.style.display = "block";
+          const rect = renderer.domElement.getBoundingClientRect();
+          const dums = game.enemies.filter((e) => e.sbDummy && !e.dead);
+          const v = new THREE.Vector3();
+          let n = 0;
+          for (const e of dums) {
+            v.set(e.pos.x, e.pos.y + 1.1, surfaceZ(e.pos.x, e.pos.y) + 1.3); v.project(camera);
+            let lab = hpPool[n]; if (!lab) { lab = document.createElement("div"); lab.style.cssText = "position:absolute;transform:translate(-50%,-100%);padding:1px 4px;border-radius:4px;background:rgba(10,12,15,0.72);white-space:nowrap;text-shadow:0 1px 2px #000;"; hpWrap.appendChild(lab); hpPool.push(lab); }
+            if (v.z > 1 || v.z < -1) { lab.style.display = "none"; n += 1; continue; }
+            lab.style.display = "block";
+            lab.style.left = (rect.left + (v.x * 0.5 + 0.5) * rect.width) + "px";
+            lab.style.top = (rect.top + (-v.y * 0.5 + 0.5) * rect.height) + "px";
+            const cur = Math.max(0, Math.ceil(e.hp)), max = Math.max(1, Math.ceil(e.maxHp)), r = cur / max;
+            lab.textContent = cur + "/" + max;
+            lab.style.color = r > 0.5 ? "#9bf080" : r > 0.2 ? "#ffd24c" : "#ff6a4a";
+            n += 1;
+          }
+          for (let i = n; i < hpPool.length; i += 1) hpPool[i].style.display = "none";
+        }
+        function tick() {
+          if (!SB.on) return;
+          game.waveTotal = game.waveTotal || 999;
+          game.spawned = game.waveTotal;                 // suppress auto-spawn; dummies present -> wave never "clears"
+          game.godMode = Math.max(game.godMode || 0, 1);  // player can't die in the sandbox
+          game.invincible = Math.max(game.invincible || 0, 1);
+          game.reduceMotion = !SB.opts.shake; // OFF -> kills the walking sway/heave/roll + per-step camera bob
+          if (!SB.opts.shake) { game.shake = 0; game.shakeWarning = 0; game.stagger = 0; game.trauma = 0; } // also kill the periodic HEAVE + all screen-shake -> dead-steady view
+          applyGrade(); // grade + fog + lighting: OFF = clean neutral debug view (no warm 'piss' cast)
+          maintainDummies(SB.opts.respawn !== false);
+          trackDamage();
+          updateHpLabels();
+          requestAnimationFrame(tick);
+        }
+        function logCast(kind, label, pos, radius) {
+          let inR = 0; if (radius) for (const e of game.enemies) if (!e.dead && e.pos.distanceTo(pos) < radius) inR += 1;
+          if (typeof logEvent === "function") logEvent("sandbox-" + kind, { label: label, targetsInRange: inR, radius: radius || 0 });
+        }
+        SB.start = function (opts) {
+          Object.assign(SB.opts, opts || {});
+          try { const b = document.getElementById("startBtn"); if (b && !game.started && !game.intro) b.click(); } catch (e) {}
+          try { if (game.intro && typeof endIntro === "function") endIntro(); } catch (e) {}
+          game.intro = false; game.started = true; game.state = "wave";
+          try { if (!game.wave && typeof beginWave === "function") beginWave(1); } catch (e) {}
+          game.waveTotal = game.waveTotal || 999; game.spawned = game.waveTotal;
+          captureRow();
+          if (!SB._g) captureGrade();
+          maintainDummies(true);
+          if (!SB.on) { SB.on = true; requestAnimationFrame(tick); }
+          return true;
+        };
+        SB.setOpts = function (opts) { Object.assign(SB.opts, opts || {}); };
+        SB.spawnDummies = function (n, type) { if (n) SB.opts.dummies = n | 0; if (type !== undefined) SB.opts.type = type || null; captureRow(); maintainDummies(true); };
+        SB.respawnDummies = function () {
+          captureRow();
+          if (game.pendingSpawns) game.pendingSpawns.length = 0;
+          for (let i = game.enemies.length - 1; i >= 0; i -= 1) { const e = game.enemies[i]; if (e.sbDummy) removeDummy(e, i); }
+          maintainDummies(true);
+        };
+        SB.reset = function () { SB.respawnDummies(); SB.clearLog(); };
+        SB.clearLog = function () { if (W.debug && W.debug.events) W.debug.events.length = 0; };
+        SB.element = function (id) { const e = ELEMENTS.find((x) => x.id === id); if (!e) return; game.unlocks = { spells: true, streaks: true, mix2: true, mix3: true }; SB._last = e.label; game.comboEls = {}; logCast("element", e.label, player.pos.clone(), e.radius); executeSpecial(Object.assign({}, e)); };
+        SB.streak = function (id) { const s = STREAK_SPECIALS.concat(BIRTHDAY_SPECIALS).find((x) => x.id === id); if (!s) return; SB._last = s.label; logCast("streak", s.label, player.pos.clone(), s.radius); executeSpecial(Object.assign({}, s)); };
+        SB.combo = function (key) { const c = COMBO_TABLE[key]; if (!c) return; SB._last = c.name; logCast("combo", c.name, player.pos.clone(), 6); c.run(player.pos.clone()); };
+        SB.lists = function () {
+          return {
+            elements: ELEMENTS.map((e) => ({ id: e.id, label: e.label, color: e.color })),
+            combos: Object.keys(COMBO_TABLE).map((k) => ({ key: k, name: COMBO_TABLE[k].name, color: COMBO_TABLE[k].color })),
+            streaks: STREAK_SPECIALS.concat(BIRTHDAY_SPECIALS).map((s) => ({ id: s.id, label: s.label, threshold: s.threshold || 0 })),
+            enemyTypes: REG_KINDS.map((id) => ({ id: id, label: KIND_LABEL[id] || id })).concat(BOSS_KINDS.map((k) => ({ id: "boss:" + k, label: KIND_LABEL[k] || k }))),
+          };
+        };
+        W.sandbox = SB;
+      })();
 
       async function openLogPanel() {
         const json = exportGameplayLog();
@@ -2626,13 +2879,149 @@
         if (game.stagger > 0) game.stagger = Math.max(0, game.stagger - dt);
         if (game.streakHitCd > 0) game.streakHitCd = Math.max(0, game.streakHitCd - dt);
         if (game.momentum > 0) game.momentum = Math.max(0, game.momentum - dt * 0.6);
+        if (game.worldSlow > 0) game.worldSlow = Math.max(0, game.worldSlow - dt);
+        // WIND spell: a whirlwind that follows the player for ~2s — shoves nearby enemies out and
+        // chips them, vacuums pickups, and (visually) the kids spin around Santiago in a frenzy.
+        if (game.windFrenzy > 0) {
+          game.windFrenzy = Math.max(0, game.windFrenzy - dt);
+          const r = game.windFrenzyR;
+          // Damage/sparks throttled to ~7 Hz (createHitSpark allocates meshes) — the SHOVE stays per-frame.
+          game.windTick -= dt;
+          const hitNow = game.windTick <= 0;
+          if (hitNow) game.windTick = 0.14;
+          for (const e of game.enemies) {
+            if (e.dead || e.intangible > 0) continue;
+            const out = e.pos.clone().sub(player.pos);
+            const d = out.length();
+            if (d < r) {
+              if (out.lengthSq() < 0.01) out.set(0, 1);
+              out.normalize();
+              if (e.knockVel) e.knockVel.addScaledVector(out, 24 * dt); // continuous outward shove
+              else e.pos.addScaledVector(out, 2.2 * dt);
+              if (hitNow) elementHit(e, 9 * 0.14, "wind", out); // ~9 dmg/sec, applied in throttled ticks
+            }
+          }
+          for (const pk of game.pickups) {
+            const pull = player.pos.clone().sub(pk.pos);
+            if (pull.length() < r * 1.4) pk.pos.addScaledVector(pull.normalize(), 6 * dt);
+          }
+          if (Math.random() < dt * 6) createWindSwirl(player.pos.clone(), r * 0.7);
+        }
+        // SPRINT phase-dash: shell pulses + expires (3x speed in updatePlayer, insta-kill in contact).
+        if (game.phaseDash > 0) {
+          game.phaseDash = Math.max(0, game.phaseDash - dt);
+          if (game.phaseShell) {
+            game.phaseShell.material.opacity = 0.2 + 0.2 * Math.abs(Math.sin(performance.now() * 0.02));
+            game.phaseShell.rotation.z += dt * 6;
+          }
+          if (game.phaseDash === 0 && game.phaseShell) {
+            player.group.remove(game.phaseShell);
+            disposeObject(game.phaseShell);
+            game.phaseShell = null;
+          }
+        }
+        // CARNAGE blade-storm: orbiting blades shred nearby mobs for 4s.
+        if (game.carnage > 0) {
+          game.carnage = Math.max(0, game.carnage - dt);
+          game.carnageTick -= dt;
+          const hit = game.carnageTick <= 0;
+          if (hit) game.carnageTick = 0.12;
+          for (const e of game.enemies) {
+            if (e.dead || e.intangible > 0) continue;
+            if (hit && e.pos.distanceTo(player.pos) < 4.2) damageEnemy(e, 8, e.pos.clone().sub(player.pos));
+          }
+          if (Math.random() < dt * 22) {
+            const a = Math.random() * Math.PI * 2;
+            const dir = new THREE.Vector2(Math.cos(a), Math.sin(a));
+            createLineEffect(player.pos.clone().addScaledVector(dir, 1.2), player.pos.clone().addScaledVector(dir, 4), 0xff7138, 0.05, 0.18);
+          }
+        }
+        // TWIN HUNT: 2 supersized lead kids insta-execute (movement/kills in updateKids); expire here.
+        if (game.twinHunt > 0 && game.state === "wave") game.twinHunt = Math.max(0, game.twinHunt - dt);
+        // GEYSER: a water laser that follows your aim for 6s, shoving + drowning mobs (off-map = bonus kill).
+        if (game.geyser > 0) {
+          game.geyser = Math.max(0, game.geyser - dt);
+          game.geyserTick -= dt;
+          const gHit = game.geyserTick <= 0;
+          if (gHit) game.geyserTick = 0.12;
+          const f = player.facing.clone();
+          if (f.lengthSq() < 0.001) f.set(0, 1);
+          f.normalize();
+          const len = 16;
+          const halfW = 1.5;
+          const side = new THREE.Vector2(-f.y, f.x);
+          for (const e of [...game.enemies]) {
+            if (e.dead || e.intangible > 0) continue;
+            const rel = e.pos.clone().sub(player.pos);
+            const along = rel.dot(f);
+            if (along < 0 || along > len || Math.abs(rel.dot(side)) > halfW + e.radius) continue;
+            if (e.knockVel) e.knockVel.addScaledVector(f, 60 * dt);
+            e.pos.addScaledVector(f, 6 * dt);
+            // direct lethal damage (the arena re-clamps mobs in-bounds, so the off-map check alone never kills)
+            if (gHit) elementHit(e, e.type === "boss" ? 5 : 4, "water", f);
+            const off =
+              e.pos.x < -HALF_W - 0.5 ||
+              e.pos.x > HALF_W + 0.5 ||
+              e.pos.y > game.stageCenter + HALF_H + 0.5 ||
+              e.pos.y < game.stageCenter - HALF_H - 0.5;
+            if (off && e.type !== "boss") {
+              createGore(e.pos, f, 8);
+              killEnemy(e, f);
+            }
+          }
+          if (!game.geyserMesh) {
+            const m = new THREE.Mesh(
+              new THREE.PlaneGeometry(halfW * 2, len),
+              new THREE.MeshBasicMaterial({ color: 0x3aa6ff, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
+            );
+            groups.effects.add(m);
+            game.geyserMesh = m;
+          }
+          game.geyserMesh.position.set(player.pos.x + f.x * len * 0.5, player.pos.y + f.y * len * 0.5, 0.5);
+          game.geyserMesh.rotation.z = Math.atan2(f.y, f.x) - Math.PI / 2;
+          game.geyserMesh.material.opacity = 0.4 + 0.15 * Math.abs(Math.sin(performance.now() * 0.03));
+          if (game.geyser === 0 && game.geyserMesh) {
+            groups.effects.remove(game.geyserMesh);
+            disposeObject(game.geyserMesh);
+            game.geyserMesh = null;
+          }
+        }
+        // FIREWORKS: the kids (at the bottom of the map, see updateKids) launch a multicolor barrage.
+        if (game.fireworksT > 0) {
+          game.fireworksT = Math.max(0, game.fireworksT - dt);
+          game.fireworksGap -= dt;
+          if (game.fireworksGap <= 0) {
+            game.fireworksGap = 0.18 + Math.random() * 0.12;
+            const live = game.enemies.filter((e) => !e.dead);
+            const target = live.length
+              ? live[Math.floor(Math.random() * live.length)].pos.clone()
+              : new THREE.Vector2(rand(-HALF_W, HALF_W), game.stageCenter + rand(-HALF_H, HALF_H));
+            const colors = [0xff5a5a, 0x65d5ff, 0xffd24c, 0x9b7bff, 0x6fef8a];
+            createFireworks(target, 26, colors[Math.floor(Math.random() * colors.length)]);
+            radialDamage(target, 3.2, 16);
+          }
+        }
+        // FIST phase 2: after the next batch has spawned, drop the giant linear fist on them.
+        if (game.fistPhase2 > 0) {
+          game.fistPhase2 = Math.max(0, game.fistPhase2 - dt);
+          if (game.fistPhase2 === 0) {
+            const y0 = densestRowY();
+            for (let n = 0; n < 5; n += 1) {
+              const p = new THREE.Vector2(-HALF_W + (n / 4) * HALF_W * 2, y0 + rand(-1.5, 1.5));
+              p.y = THREE.MathUtils.clamp(p.y, game.stageCenter - HALF_H, game.stageCenter + HALF_H);
+              scheduleStrike(p, 0.1 + n * 0.14, 4.4, game.fistDmg, 0xb8a070);
+            }
+            addTrauma(0.7);
+          }
+        }
         // Kid-hunt only ticks down during an active wave, so casting it between waves isn't wasted.
         if (game.kidHunt > 0 && game.state === "wave") {
           game.kidHunt = Math.max(0, game.kidHunt - dt);
           if (game.kidHunt === 0) game.kidHuntDamage = 0;
         }
-        if (game.recoil > 0) game.recoil = THREE.MathUtils.lerp(game.recoil, 0, Math.min(1, dt * 12));
-        if (game.zoomPunch > 0) game.zoomPunch = Math.max(0, game.zoomPunch - dt * 2.6);
+        // framerate-correct eased decay (was linear) — recoil offsets the player MESH, zoomPunch offsets camera.z; both pure visual. Same simDt as before so freeze behaviour is unchanged.
+        if (game.recoil > 0) { game.recoil = damp(game.recoil, 0, 16, dt); if (game.recoil < 0.001) game.recoil = 0; }
+        if (game.zoomPunch > 0) { game.zoomPunch = damp(game.zoomPunch, 0, 7, dt); if (game.zoomPunch < 0.002) game.zoomPunch = 0; }
 
         if (game.state === "wave") {
           // Telegraphed immobilize-shake warning -> brief brace lock (early waves only; late waves get
@@ -2781,7 +3170,8 @@
         // kill-momentum boost (chain kills to stay fast). Makes it a fluid movement brawler.
         const flow = 1 + streakSpeedBonus(game.streak) + game.momentum * 0.18;
         const travelSpeed = game.state === "clear" ? 4.4 : game.state === "victory" ? 3.7 : 3.5 * wavePace(game.wave);
-        const speed = travelSpeed * contactSlow * chargeSlow * god * sprint * (game.state === "wave" ? flow : 1);
+        const phase = game.phaseDash > 0 ? 3 : 1; // Sprint: 3x speed phase-dash
+        const speed = travelSpeed * contactSlow * chargeSlow * god * sprint * phase * (game.state === "wave" ? flow : 1);
 
         if (move.lengthSq() > 0.002 && canMove) {
           player.pos.addScaledVector(move, speed * dt);
@@ -2828,13 +3218,57 @@
 
         updateActorTransforms();
         updateAura(dt);
+        updateReadabilityRings();
+        updateMobModels(dt);
+        updateComboZoneVisuals(dt);
       }
 
       function updateKids(dt) {
         for (const [index, kid] of kids.entries()) {
+          if (kid.group.scale.x !== kid.baseScale) kid.group.scale.setScalar(kid.baseScale); // only Twin Hunt supersizes (reset to natural size first)
+          // WIND frenzy: the kids whip around Santiago in a fast spin (the whirlwind does the damage).
+          if (game.windFrenzy > 0 && game.state === "wave") {
+            const ang = performance.now() * 0.02 + index * Math.PI; // opposite sides, ~3 rev/sec
+            const orbitR = 1.55;
+            kid.pos.set(player.pos.x + Math.cos(ang) * orbitR, player.pos.y + Math.sin(ang) * orbitR);
+            kid.group.position.set(kid.pos.x, kid.pos.y, surfaceZ(kid.pos.x, kid.pos.y) + 0.32);
+            kid.group.rotation.z = ang + Math.PI / 2; // face tangent — visibly spinning
+            continue;
+          }
+          // TWIN HUNT: the kids SUPERSIZE and roam the whole field, insta-executing anything they touch.
+          if (game.twinHunt > 0 && game.state === "wave") {
+            kid.group.scale.setScalar(kid.baseScale * 3.6); // SUPERSIZE relative to natural size
+            const tgt = nearestEnemy(kid.pos, 999);
+            kid.pos.lerp(tgt ? tgt.pos.clone() : player.pos.clone(), Math.min(1, dt * 7));
+            kid.group.position.set(kid.pos.x, kid.pos.y, surfaceZ(kid.pos.x, kid.pos.y) + 0.32);
+            const kf = tgt ? tgt.pos.clone().sub(kid.pos) : player.facing.clone();
+            kid.group.rotation.z = facingToRotation(kf.lengthSq() > 0.01 ? kf.normalize() : player.facing);
+            for (const e of [...game.enemies]) {
+              if (e.dead || e.intangible > 0) continue;
+              if (e.pos.distanceTo(kid.pos) < 1.5 + e.radius) {
+                const dir = e.pos.clone().sub(kid.pos);
+                if (e.type === "boss") damageEnemy(e, 60 * dt, dir);
+                else {
+                  createGore(e.pos, dir.lengthSq() > 0.01 ? dir : player.facing, 8);
+                  killEnemy(e, dir);
+                }
+              }
+            }
+            continue;
+          }
+          // FIREWORKS: the kids run to the bottom of the map to launch the barrage (bursts in updateTimers).
+          if (game.fireworksT > 0 && game.state === "wave") {
+            const bx = THREE.MathUtils.clamp(player.pos.x + (index === 0 ? -1.6 : 1.6), -HALF_W + 0.5, HALF_W - 0.5);
+            const by = game.stageCenter - HALF_H + 0.8;
+            kid.pos.lerp(new THREE.Vector2(bx, by), Math.min(1, dt * 5));
+            kid.group.position.set(kid.pos.x, kid.pos.y, surfaceZ(kid.pos.x, kid.pos.y) + 0.32);
+            kid.group.rotation.z = facingToRotation(new THREE.Vector2(0, 1));
+            continue;
+          }
           const target = samplePath(kid.delay);
           const hunting = game.kidHunt > 0 && game.state === "wave";
-          const huntTarget = hunting ? nearestEnemy(kid.pos, 9.5) || nearestEnemy(player.pos, 12) : null;
+          // KID RAID: seek the nearest mob ANYWHERE on the field (roam freely; don't tether back to Santiago).
+          const huntTarget = hunting ? nearestEnemy(kid.pos, 999) : null;
           const safeBack = game.enemies.some((enemy) => enemy.pos.distanceTo(player.pos) < 2.1);
           const offsetScale = safeBack ? -1.62 : -1.08;
           const back = player.facing.clone().multiplyScalar(offsetScale);
@@ -2856,7 +3290,7 @@
           if (kid.attackTimer <= 0 && game.state === "wave") {
             kid.attackTimer = hunting ? 0.42 + Math.random() * 0.18 : 1.05 + Math.random() * 0.7;
             const enemy = huntTarget || nearestEnemy(kid.pos, 5.2);
-            if (enemy) {
+            if (enemy && !(enemy.intangible > 0)) {
               enemy.slowed = Math.max(enemy.slowed, hunting ? 1.8 : 1.25);
               createKidImpact(kid.pos, enemy.pos, kid.name === "Santiago" ? 0xffd24c : 0x65d5ff);
               if (hunting) damageEnemy(enemy, game.kidHuntDamage || 6, enemy.pos.clone().sub(kid.pos));
@@ -2878,7 +3312,7 @@
           }
         }
 
-        const cap = Math.min(ACTIVE_CAP, 8 + Math.floor(game.wave * 0.7));
+        const cap = activeCapFor(game.wave);
         game.spawnTimer -= dt;
         while (
           game.spawnTimer <= 0 &&
@@ -2888,7 +3322,8 @@
         ) {
           spawnEnemy();
           game.spawned += 1;
-          game.spawnTimer += Math.max(0.16, 0.78 - game.wave * 0.025);
+          // Waves 14+ felt grindy (you chase stragglers between slow spawns) -> spawn much faster so the field stays full.
+          game.spawnTimer += game.wave >= 14 ? Math.max(0.08, 0.42 - game.wave * 0.018) : Math.max(0.16, 0.78 - game.wave * 0.025);
         }
 
         // Late-wave pressure: from wave 12, keep ONE paced Stonebreaker on the field for active
@@ -3025,6 +3460,40 @@
         addTrauma(0.2);
       }
 
+      // ---- HEX CONDUIT signature hazards (NON-deflectable): blooming rune-sigils + rotating sweep-beams. ----
+      // Both push to game.zones and are driven/cleaned by updateZones (kinds "hexsigil" / "hexbeam").
+      function createHexSigil(pos, killR, lead) {
+        const ring = new THREE.Mesh(
+          new THREE.RingGeometry(0.82, 1, 6, 1), // 6-seg ring -> hexagonal rune
+          new THREE.MeshBasicMaterial({ color: 0xb968ff, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }),
+        );
+        ring.position.set(pos.x, pos.y, 0.6); ring.scale.setScalar(killR * 2.0); ring.rotation.z = Math.PI / 6;
+        const disc = new THREE.Mesh(
+          new THREE.CircleGeometry(killR, 6),
+          new THREE.MeshBasicMaterial({ color: 0x7a2cff, transparent: true, opacity: 0.12, depthWrite: false, blending: THREE.AdditiveBlending }),
+        );
+        disc.position.set(pos.x, pos.y, 0.5); disc.rotation.z = Math.PI / 6;
+        groups.effects.add(ring, disc);
+        game.zones.push({ kind: "hexsigil", pos: pos.clone(), killR, life: lead, maxLife: lead, mesh: ring, disc, fired: false });
+      }
+      function spawnHexBeams(enemy, n, opts) {
+        opts = opts || {};
+        const base = Math.random() * Math.PI * 2;
+        const spin = (Math.random() < 0.5 ? -1 : 1) * (opts.angVel || 0.9);
+        const len = opts.len || 9.5, hw = opts.hw || 0.5, life = opts.life || 3.0, warmup = opts.warmup != null ? opts.warmup : 0.6;
+        for (let k = 0; k < n; k += 1) {
+          const beam = new THREE.Mesh(
+            new THREE.PlaneGeometry(1, 1),
+            new THREE.MeshBasicMaterial({ color: 0xc77bff, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }),
+          );
+          beam.position.z = 0.55;
+          groups.effects.add(beam);
+          game.zones.push({ kind: "hexbeam", origin: enemy.pos.clone(), angle: base + (k / n) * Math.PI * 2, angVel: spin, length: len, halfWidth: hw, life, maxLife: life, warmup, mesh: beam, hitCd: 0, ownerId: enemy.id });
+        }
+        addTrauma(0.3); screenPulse(0.12, 0xc77bff);
+        if (!game.hexTaught) { game.hexTaught = true; showToast("HEX CONDUIT — weave through the sweeping beams.", 2.6); }
+      }
+
       function updateEnemies(dt) {
         assignFlankSlots(dt);
         for (let i = game.enemies.length - 1; i >= 0; i -= 1) {
@@ -3037,13 +3506,24 @@
             clearDash(enemy); // a stun interrupts any committed dash (releases the fairness-cap slot)
             enemy.stunned -= dt;
             enemy.group.rotation.z += dt * 2;
+            // keep the mesh on the hitbox even while AI is frozen (Geyser/Wind can shove a stunned mob)
+            enemy.group.position.set(enemy.pos.x, enemy.pos.y, surfaceZ(enemy.pos.x, enemy.pos.y) + 0.03 + (enemy.intangible > 0 ? -0.9 : 0));
             continue;
           }
           if (enemy.slowed > 0) enemy.slowed -= dt;
           if (enemy.rooted > 0) enemy.rooted -= dt;
+          if (enemy.litT > 0) {
+            enemy.litT -= dt;
+            if (enemy.litMesh) enemy.litMesh.material.opacity = Math.max(0, enemy.litT) * 0.5;
+            if (enemy.litT <= 0 && enemy.litMesh) {
+              enemy.group.remove(enemy.litMesh);
+              disposeObject(enemy.litMesh);
+              enemy.litMesh = null;
+            }
+          }
           if (enemy.burn > 0) {
             enemy.burn -= dt;
-            enemy.hp -= dt * 3.6 * (weaknessOf(enemy) === "fire" ? 2 : 1); // fire-weak foes burn 2x (matches other elements)
+            enemy.hp -= dt * 2.4 * (weaknessOf(enemy) === "fire" ? 2 : 1); // burn DoT nerfed (was 3.6) so the fire element nerf actually lands; fire-weak still 2x
             if (Math.random() < dt * 6) createHitSpark(enemy.pos, 0xff6a1a, 1);
             if (enemy.hp <= 0) {
               killEnemy(enemy, new THREE.Vector2(0, 1));
@@ -3058,7 +3538,59 @@
           const root = enemy.rooted > 0 ? 0.05 : 1;
           const speed = enemy.speed * slow * root;
 
-          const isShooter = enemy.type === "ranged" || enemy.type === "wisp" || enemy.type === "spitter";
+          if (enemy.type === "wisp") {
+            // RUNE WISP: floats/kites like before AND blinks to reposition, lobbing a slow HOMING rune.
+            // Fragile — it survives by drifting + teleporting, not by tanking.
+            if (enemy.knockVel && enemy.knockVel.lengthSq() > 0.0002) {
+              enemy.pos.addScaledVector(enemy.knockVel, dt);
+              enemy.knockVel.multiplyScalar(Math.exp(-12 * dt));
+            }
+            // Drift: hold a comfortable mid-range from Santiago and circle (the old kiting movement), but
+            // only when it's not mid-blink-shimmer.
+            if (enemy.blinkTel <= 0) {
+              const perp = new THREE.Vector2(-dir.y, dir.x);
+              const drift = new THREE.Vector2();
+              if (distance < 5) drift.addScaledVector(dir, -1); // back off if you close in
+              else if (distance > 8.5) drift.addScaledVector(dir, 0.7); // drift back in if too far
+              drift.addScaledVector(perp, enemy.strafeDir * 0.75); // strafe/circle
+              if (drift.lengthSq() > 0.0001) enemy.pos.addScaledVector(drift.normalize(), speed * 0.6 * dt);
+              enemy.strafeFlip -= dt;
+              if (enemy.strafeFlip <= 0) {
+                enemy.strafeFlip = 1.4 + Math.random() * 1.2;
+                enemy.strafeDir *= -1;
+              }
+              if (Math.abs(enemy.pos.x) > HALF_W - 0.6) enemy.strafeDir = enemy.pos.x > 0 ? -1 : 1;
+            }
+            enemy.blinkCd -= dt;
+            if (enemy.blinkTel > 0) {
+              enemy.blinkTel -= dt;
+              enemy.flash = 1;
+              if (enemy.blinkTel <= 0) {
+                createRing(enemy.pos, 0xc9a0ff, 1.1); // depart flash
+                enemy.pos.copy(enemy.blinkTo);
+                createRing(enemy.pos, 0xc9a0ff, 1.1); // arrive flash
+                blip({ type: "sine", freq: 620, dur: 0.08, gain: 0.05, freqEnd: 280 });
+              }
+            } else if (enemy.blinkCd <= 0) {
+              const a = Math.random() * Math.PI * 2;
+              const r = 6 + Math.random() * 2.5;
+              enemy.blinkTo = new THREE.Vector2(
+                THREE.MathUtils.clamp(player.pos.x + Math.cos(a) * r, -HALF_W + 0.5, HALF_W - 0.5),
+                THREE.MathUtils.clamp(player.pos.y + Math.sin(a) * r, game.stageCenter - HALF_H + 0.5, game.stageCenter + HALF_H - 0.5),
+              );
+              enemy.blinkTel = 0.28; // brief shimmer before it vanishes
+              enemy.blinkCd = 2.4 + Math.random() * 1.6;
+            }
+            enemy.cooldown -= dt;
+            if (enemy.cooldown <= 0 && enemy.blinkTel <= 0) {
+              enemy.cooldown = 1.9 + Math.random() * 1.1;
+              spawnHomingRune(enemy);
+            }
+            enemy.group.position.set(enemy.pos.x, enemy.pos.y, surfaceZ(enemy.pos.x, enemy.pos.y) + 0.03);
+            enemy.group.rotation.z = facingToRotation(dir); // face Santiago like it used to (no spin)
+            continue;
+          }
+          const isShooter = enemy.type === "ranged" || enemy.type === "spitter";
           const move = new THREE.Vector2();
           const perp = new THREE.Vector2(-dir.y, dir.x);
           if (isShooter && distance < 5.7) {
@@ -3080,8 +3612,7 @@
               if (Math.abs(enemy.pos.x) > HALF_W - 0.6) enemy.strafeDir = enemy.pos.x > 0 ? -1 : 1;
               enemy.cooldown -= dt;
               if (enemy.cooldown <= 0) {
-                enemy.cooldown =
-                  enemy.type === "wisp" ? 1.5 + Math.random() * 0.7 : 2.1 + Math.random() * 0.9;
+                enemy.cooldown = 2.1 + Math.random() * 0.9; // ranged/spitter only (wisp has its own AI now)
                 enemy.windup = 0.45;
                 createRing(enemy.pos, 0xffb030, enemy.radius * 1.9);
                 blip({ type: "square", freq: 320, dur: 0.08, gain: 0.05 });
@@ -3092,9 +3623,9 @@
             enemy.cooldown = 0.3 + Math.random() * 0.4;
             enemy.pos.addScaledVector(dir, speed * dt);
           } else if (enemy.type === "boss" && enemy.charge > 0) {
-            enemy.pos.addScaledVector(enemy.chargeDir, 13 * dt); // Ribcage Troll committed charge
+            enemy.pos.addScaledVector(enemy.chargeDir, 13 * dt); // boss committed charge/dash (chargeDir)
           } else if (enemy.type === "boss" && enemy.intangible > 0) {
-            // Root Serpent submerged — holds position underground (handled in the boss switch).
+            // boss submerged/blinked (intangible) — holds position (teleport handled in the boss switch).
           } else if (enemy.type === "lurker" && enemy.blinkTel > 0) {
             enemy.flash = 1; // frozen mid-blink while the destination ring shows
           } else if (enemy.type === "slammer") {
@@ -3224,168 +3755,220 @@
               enemy.flash = 1;
               if (enemy.windup <= 0) bossVolley(enemy, enemy.volleyShots || 3);
             }
-            switch (enemy.kind) {
-              case "father": {
-                // Pure fundamentals: ONE slow boulder + a generous twin ground-slam.
-                if (enemy.windup <= 0) {
-                  enemy.cooldown -= dt;
-                  if (enemy.cooldown <= 0) {
-                    enemy.cooldown = 3.5 + Math.random() * 1.5;
-                    enemy.windup = 0.6;
-                    enemy.volleyShots = 1; // a single, easily-sidestepped boulder
-                    createRing(enemy.pos, 0xffb030, enemy.radius * 1.4);
-                  }
-                }
-                const fast = enemy.hp < enemy.maxHp * 0.35;
-                enemy.slamCd = (enemy.slamCd ?? 5.5) - dt;
-                if (enemy.slamCd <= 0) {
-                  enemy.slamCd = fast ? 3.8 : 5.5 + Math.random() * 2;
-                  bossSlam(enemy, 2, 2.0, fast ? 1.15 : 1.35);
-                }
-                break;
+            // SECTION-DUEL kit: 3 HP phases (>66 / 33-66 / <33) escalate, and each boss summons + amps the
+            // EVOLVED abilities of the mobs taught in its section.
+            const ph = enemy.hp < enemy.maxHp * 0.33 ? 3 : enemy.hp < enemy.maxHp * 0.66 ? 2 : 1;
+            if (enemy.phase !== ph) {
+              enemy.phase = ph;
+              if (ph > 1) {
+                addTrauma(0.45);
+                screenPulse(0.22, 0xff7138);
+                showToast(`${enemy.name} — Phase ${ph}!`, 1.6);
               }
-              case "troll": {
-                // Goring Charge: rear-up + a painted lane, dash (movement override), overshoot self-stun.
-                if (enemy.charge > 0) {
-                  enemy.charge -= dt;
-                  enemy.flash = 1;
-                  const atWall =
-                    Math.abs(enemy.pos.x) >= HALF_W - 0.1 ||
-                    enemy.pos.y >= game.stageCenter + HALF_H - 0.1 ||
-                    enemy.pos.y <= game.stageCenter - HALF_H + 0.1;
-                  if (enemy.charge <= 0 || atWall) {
+            }
+            const nonBoss = () =>
+              game.enemies.filter((e) => !e.dead && e.type !== "boss").length + game.pendingSpawns.length;
+            const summon = (t1, t2, cap) => {
+              enemy.summonCd = (enemy.summonCd ?? 3) - dt;
+              if (enemy.summonCd <= 0 && nonBoss() < cap) {
+                enemy.summonCd = (ph >= 3 ? 4.5 : 6.5) + Math.random() * 2;
+                spawnEnemy(t1);
+                if (ph >= 2 && t2) spawnEnemy(t2);
+              }
+            };
+            const volley = (shots, cd) => {
+              if (enemy.windup <= 0) {
+                enemy.cooldown -= dt;
+                if (enemy.cooldown <= 0) {
+                  enemy.cooldown = cd + Math.random() * 1.2;
+                  enemy.windup = 0.5;
+                  enemy.volleyShots = shots;
+                  createRing(enemy.pos, 0xffb030, enemy.radius * 1.4);
+                }
+              }
+            };
+            const slams = (count, killR, cd) => {
+              enemy.slamCd = (enemy.slamCd ?? cd) - dt;
+              if (enemy.slamCd <= 0) {
+                enemy.slamCd = cd + Math.random() * 1.5;
+                bossSlam(enemy, count, killR, 1.2);
+              }
+            };
+            // dash reuses charge fields; the MOVEMENT block applies the chargeDir dash, this manages state.
+            const dash = (cd, tel, dur, bounce) => {
+              if (enemy.charge > 0) {
+                enemy.charge -= dt;
+                enemy.flash = 1;
+                const atWall =
+                  Math.abs(enemy.pos.x) >= HALF_W - 0.3 ||
+                  enemy.pos.y >= game.stageCenter + HALF_H - 0.3 ||
+                  enemy.pos.y <= game.stageCenter - HALF_H + 0.3;
+                if (atWall) {
+                  if (bounce && (enemy.bounces ?? 0) < 2) {
+                    enemy.bounces = (enemy.bounces ?? 0) + 1;
+                    if (Math.abs(enemy.pos.x) >= HALF_W - 0.3) enemy.chargeDir.x *= -1;
+                    else enemy.chargeDir.y *= -1;
+                    if (enemy.chargeDir.lengthSq() > 0.001) enemy.chargeDir.normalize();
+                    bossSlamAt(enemy, enemy.pos.clone(), 1.7, 0.5);
+                  } else {
                     enemy.charge = 0;
-                    enemy.stunned = 1.2; // wide-open recovery window
-                    addTrauma(0.3);
-                    bossSlamAt(enemy, enemy.pos.clone(), 1.6, 1.3); // recover stomp under itself
-                  }
-                } else if (enemy.chargeTel > 0) {
-                  enemy.chargeTel -= dt;
-                  enemy.flash = 1;
-                  if (enemy.chargeTel <= 0) enemy.charge = 0.55;
-                } else {
-                  enemy.chargeCd = (enemy.chargeCd ?? 4.5) - dt;
-                  if (enemy.chargeCd <= 0) {
-                    enemy.chargeCd = lowHp ? 2.2 : 4.5 + Math.random() * 1.5;
-                    enemy.chargeDir.copy(dir); // lane locked at rear-up
-                    enemy.chargeTel = 0.8;
-                    for (let k = 1; k <= 4; k += 1) {
-                      const lp = enemy.pos.clone().addScaledVector(enemy.chargeDir, k * 1.4);
-                      lp.x = THREE.MathUtils.clamp(lp.x, -HALF_W + 1.3, HALF_W - 1.3);
-                      lp.y = THREE.MathUtils.clamp(lp.y, game.stageCenter - HALF_H + 1.3, game.stageCenter + HALF_H - 1.3);
-                      createTremorDisc(lp, 1.3, 0.95, enemy.id);
-                    }
                   }
                 }
+                if (enemy.charge <= 0) {
+                  enemy.stunned = bounce ? 0.8 : 0.5;
+                  addTrauma(0.3);
+                  bossSlamAt(enemy, enemy.pos.clone(), 1.9, 0.6);
+                }
+              } else if (enemy.chargeTel > 0) {
+                enemy.chargeTel -= dt;
+                enemy.flash = 1;
+                if (enemy.chargeTel <= 0) {
+                  enemy.charge = dur;
+                  enemy.bounces = 0;
+                }
+              } else {
+                enemy.chargeCd = (enemy.chargeCd ?? cd) - dt;
+                if (enemy.chargeCd <= 0) {
+                  enemy.chargeCd = cd + Math.random() * 1.5;
+                  enemy.chargeDir.copy(dir);
+                  enemy.chargeTel = tel;
+                  createRing(enemy.pos, 0xff4a3a, enemy.radius * 1.6);
+                }
+              }
+            };
+            // blink reuses intangible/burrowTo; the MOVEMENT block holds position while intangible.
+            const blink = (cd) => {
+              if (enemy.intangible > 0) {
+                enemy.intangible -= dt;
+                if (enemy.intangible <= 0) {
+                  enemy.intangible = 0;
+                  enemy.pos.copy(enemy.burrowTo);
+                  createRing(enemy.pos, 0xc9a0ff, 1.6);
+                }
+              } else {
+                enemy.burrowCd = (enemy.burrowCd ?? cd) - dt;
+                if (enemy.burrowCd <= 0) {
+                  enemy.burrowCd = cd + Math.random() * 1.5;
+                  const a = Math.random() * Math.PI * 2;
+                  const r = 4 + Math.random() * 2.5;
+                  enemy.burrowTo.set(
+                    THREE.MathUtils.clamp(player.pos.x + Math.cos(a) * r, -HALF_W, HALF_W),
+                    THREE.MathUtils.clamp(player.pos.y + Math.sin(a) * r, game.stageCenter - HALF_H, game.stageCenter + HALF_H),
+                  );
+                  enemy.intangible = 0.7;
+                  createRing(enemy.pos, 0xc9a0ff, 1.4);
+                  createRing(enemy.burrowTo, 0xc9a0ff, 1.4);
+                }
+              }
+            };
+            const runeFan = (cd, n) => {
+              enemy.cooldown -= dt;
+              if (enemy.cooldown <= 0 && enemy.intangible <= 0) {
+                enemy.cooldown = cd + Math.random();
+                for (let k = 0; k < n; k += 1) spawnHomingRune(enemy);
+              }
+            };
+            const bombPods = (cd, n) => {
+              enemy.podCd = (enemy.podCd ?? cd) - dt;
+              if (enemy.podCd <= 0) {
+                enemy.podCd = cd + Math.random() * 2;
+                for (let k = 0; k < n; k += 1) {
+                  const p = new THREE.Vector2(rand(-HALF_W + 1.5, HALF_W - 1.5), game.stageCenter + rand(-HALF_H + 1.5, HALF_H - 1.5));
+                  bossSlamAt(enemy, p, 1.9, 1.1);
+                }
+              }
+            };
+            const hexSigils = (cd, n) => {
+              enemy.sigilCd = (enemy.sigilCd ?? cd) - dt;
+              if (enemy.sigilCd <= 0) {
+                enemy.sigilCd = cd + Math.random() * 1.5;
+                for (let k = 0; k < n; k += 1) {
+                  const a = Math.random() * Math.PI * 2, r = rand(1.6, 4.8);
+                  createHexSigil(new THREE.Vector2(
+                    THREE.MathUtils.clamp(player.pos.x + Math.cos(a) * r, -HALF_W + 1.2, HALF_W - 1.2),
+                    THREE.MathUtils.clamp(player.pos.y + Math.sin(a) * r, game.stageCenter - HALF_H + 1.2, game.stageCenter + HALF_H - 1.2),
+                  ), 1.9, 0.95);
+                }
+              }
+            };
+            const hexBeams = (cd, n, opts) => {
+              enemy.beamCd = (enemy.beamCd ?? cd) - dt;
+              if (enemy.beamCd <= 0) {
+                enemy.beamCd = cd + Math.random() * 2;
+                spawnHexBeams(enemy, n, opts);
+              }
+            };
+            const approach = (m) => {
+              if (enemy.charge <= 0 && enemy.intangible <= 0 && enemy.chargeTel <= 0 && distance > 3.2) {
+                enemy.pos.addScaledVector(dir, speed * dt * m);
+              }
+            };
+            const kite = () => {
+              if (enemy.intangible <= 0 && distance < 6) enemy.pos.addScaledVector(dir, -speed * dt);
+            };
+            switch (enemy.kind) {
+              case "tyrant": {
+                // GRAVE TYRANT — Ash Dead / Crawler / Hugger: a horde-king that vomits a swarm + erupts roots.
+                approach(0.55);
+                summon("crawler", "hugger", 6);
+                slams(ph >= 3 ? 3 : 2, 2.0, ph >= 3 ? 3.6 : 5);
+                if (ph >= 3) dash(4, 0.55, 0.5, false); // a crawler-style zig-zag rush
                 break;
               }
-              case "matron": {
-                // Kiting shooter-queen: fan volley (3 -> 5 low HP) + raises adds + an occasional slam.
-                if (distance < 6) enemy.pos.addScaledVector(dir, -speed * dt * 1.2); // kite back
-                if (enemy.windup <= 0) {
-                  enemy.cooldown -= dt;
-                  if (enemy.cooldown <= 0) {
-                    enemy.cooldown = 3.0 + Math.random() * 1.5;
-                    enemy.windup = 0.5;
-                    enemy.volleyShots = lowHp ? 5 : 3;
-                    createRing(enemy.pos, 0xffb030, enemy.radius * 1.4);
-                  }
-                }
-                enemy.summonCd = (enemy.summonCd ?? 7) - dt;
-                const nonBoss =
-                  game.enemies.filter((e) => !e.dead && e.type !== "boss").length + game.pendingSpawns.length;
-                if (enemy.summonCd <= 0 && nonBoss < 6) {
-                  enemy.summonCd = lowHp ? 5 : 7 + Math.random() * 2;
-                  spawnEnemy("crawler");
-                  spawnEnemy("crawler");
-                  if (!game.matronTaught) {
-                    game.matronTaught = true;
-                    showToast("The Matron raises the dead — clear them!", 2.6);
-                  }
-                }
-                enemy.slamCd = (enemy.slamCd ?? 6) - dt;
-                if (enemy.slamCd <= 0) {
-                  enemy.slamCd = 6 + Math.random() * 2;
-                  bossSlam(enemy, 1, 1.8, 1.4);
-                }
+              case "warden": {
+                // RUNE WARDEN — Revenant / Bulwark: artillery sentinel (guard via summoned shields).
+                // log v5.7: it just kited and fired big volleys → player deflected the whole volley back +
+                // took 0 dmg. Fewer shots to reflect, and NON-deflectable rune-slams from P1 so you can't
+                // stand and mirror it — you have to move and actually close the gap.
+                kite();
+                volley(ph >= 3 ? 4 : ph >= 2 ? 3 : 2, ph >= 3 ? 2.2 : 3.4);
+                slams(ph >= 3 ? 2 : 1, 1.8, ph >= 3 ? 3.4 : 4.8);
+                summon("shield", "ranged", ph >= 2 ? 4 : 2);
                 break;
               }
-              case "serpent": {
-                // Burrow & Erupt: submerge (intangible), reappear in your lane, erupt a slam there.
-                if (enemy.intangible > 0) {
-                  enemy.intangible -= dt;
-                  if (enemy.intangible <= 0) {
-                    enemy.intangible = 0;
-                    enemy.pos.copy(enemy.burrowTo);
-                    bossSlamAt(enemy, enemy.burrowTo, 2.0, 0.9);
-                  }
-                } else {
-                  enemy.burrowCd = (enemy.burrowCd ?? 6) - dt;
-                  if (enemy.burrowCd <= 0) {
-                    enemy.burrowCd = enemy.hp < enemy.maxHp * 0.35 ? 4.2 : 6;
-                    const lead = (input.move.lengthSq() > 0.09 ? input.move.clone() : player.facing.clone()).normalize();
-                    const dest = player.pos.clone().addScaledVector(lead, 2.5);
-                    dest.x = THREE.MathUtils.clamp(dest.x, -HALF_W, HALF_W);
-                    dest.y = THREE.MathUtils.clamp(dest.y, game.stageCenter - HALF_H, game.stageCenter + HALF_H);
-                    enemy.burrowTo.copy(dest);
-                    enemy.intangible = 1.2;
-                    createRing(enemy.pos, 0x6a3b1a, 1.6); // dive
-                    createRing(dest, 0x9bd36a, 1.6); // green emergence telegraph
-                    if (!game.serpentTaught) {
-                      game.serpentTaught = true;
-                      showToast("The Serpent burrows — it erupts where you're headed!", 2.8);
-                    }
-                  }
-                }
+              case "alpha": {
+                // PACK ALPHA — Stalker / Lurker / Brute: a relentless predator (lunge + blink + wall-charge).
+                // log v5.5: it pinned the player with non-stop dashes → contact death. Slower approach +
+                // longer dash/blink cooldowns give a breathing window between its commitments.
+                approach(0.55);
+                summon("stalker", "lurker", 5);
+                if (ph >= 2) blink(7);
+                dash(ph >= 3 ? 4.5 : 6, 0.5, ph >= 3 ? 0.6 : 0.45, ph >= 3); // P3 wall-bounce
                 break;
               }
-              case "king": {
-                // Phase 1: shielded turtle (charge to break). Phase 2 (broken): enraged volume.
+              case "conduit": {
+                // HEX CONDUIT — a spell-weaving wraith (2nd-to-last boss). Its REAL threat is NON-deflectable now:
+                // blooming rune-sigils + rotating sweep-beams force constant movement; homing runes/bomb-pods are chip.
+                summon("wisp", "bursar", 5);
+                blink(ph >= 3 ? 2.6 : 3.4);
+                runeFan(ph >= 3 ? 2.2 : 3.2, ph >= 3 ? 4 : 2); // deflectable runs, now just pressure (not the kill)
+                hexSigils(ph >= 3 ? 2.2 : 3.4, ph >= 3 ? 4 : 2); // telegraphed AoE you must step off
+                if (ph >= 2) hexBeams(ph >= 3 ? 6.5 : 9, ph >= 3 ? 3 : 2, { angVel: ph >= 3 ? 1.15 : 0.85, life: ph >= 3 ? 3.4 : 3.0 }); // the signature sweep
+                if (ph >= 3) bombPods(4.5, 2);
+                break;
+              }
+              case "colossus": {
+                // CROWN COLOSSUS — Spitter + recap (FINALE): shielded thorn-king → greatest-hits → everything.
                 if (enemy.broken && !enemy.brokenToast) {
                   enemy.brokenToast = true;
-                  showToast("The Shield Wall King is broken — UNLEASH!", 2.6);
+                  showToast("The Crown shatters — UNLEASH!", 2.4);
                 }
-                const cadence = enemy.broken ? 0.66 : 1;
-                if (enemy.windup <= 0) {
-                  enemy.cooldown -= dt;
-                  if (enemy.cooldown <= 0) {
-                    enemy.cooldown = (3.0 + Math.random() * 1.4) * cadence;
-                    enemy.windup = 0.5;
-                    enemy.volleyShots = enemy.broken ? 5 : 3;
-                    createRing(enemy.pos, 0xffb030, enemy.radius * 1.4);
-                  }
-                }
-                enemy.slamCd = (enemy.slamCd ?? 5) - dt;
-                if (enemy.slamCd <= 0) {
-                  enemy.slamCd = (5 + Math.random() * 1.5) * cadence;
-                  bossSlam(enemy, enemy.broken ? 3 : 2, 2.0, 1.3);
-                }
-                if (enemy.broken) {
-                  enemy.summonCd = (enemy.summonCd ?? 9) - dt;
-                  const nonBoss =
-                    game.enemies.filter((e) => !e.dead && e.type !== "boss").length + game.pendingSpawns.length;
-                  if (enemy.summonCd <= 0 && nonBoss < 6) {
-                    enemy.summonCd = 9 + Math.random() * 2;
-                    spawnEnemy("shield");
-                  }
+                const wild = enemy.broken || ph >= 2;
+                approach(0.45);
+                volley(wild ? (ph >= 3 ? 6 : 5) : 3, ph >= 3 ? 2.0 : 3.0);
+                slams(ph >= 3 ? 3 : 2, 2.0, ph >= 3 ? 3.5 : 5);
+                summon("spitter", ph >= 3 ? "stalker" : null, 6);
+                if (wild) dash(4.5, 0.6, 0.5, false);
+                if (ph >= 3) {
+                  blink(4.5);
+                  bombPods(4, 3);
                 }
                 break;
               }
               default: {
-                if (enemy.windup <= 0) {
-                  enemy.cooldown -= dt;
-                  if (enemy.cooldown <= 0) {
-                    enemy.cooldown = 3.2 + Math.random() * 1.6;
-                    enemy.windup = 0.5;
-                    enemy.volleyShots = 3;
-                    createRing(enemy.pos, 0xffb030, enemy.radius * 1.4);
-                  }
-                }
-                enemy.slamCd = (enemy.slamCd ?? 5.5) - dt;
-                if (enemy.slamCd <= 0) {
-                  enemy.slamCd = 5.5 + Math.random() * 2;
-                  bossSlam(enemy, 2, 2.0, 1.3);
-                }
+                approach(0.5);
+                volley(3, 3.2);
+                slams(2, 2.0, 5.5);
               }
             }
           }
@@ -3473,24 +4056,31 @@
             enemy.stunned = 0.08;
           }
 
+          if (enemy.touchCd > 0) enemy.touchCd -= dt;
+          if (enemy.deflectCd > 0) enemy.deflectCd -= dt;
           const contactDistance = enemy.radius + player.radius;
+          // SPRINT phase-dash: Santiago insta-kills anything he passes through (bosses just take a chunk).
+          if (game.phaseDash > 0 && distance < contactDistance + 0.4 && !enemy.intangible && !enemy.dead) {
+            const dir = enemy.pos.clone().sub(player.pos);
+            if (enemy.type === "boss") damageEnemy(enemy, 40 * dt, dir);
+            else {
+              createGore(enemy.pos, dir.lengthSq() > 0.01 ? dir : player.facing, 8);
+              killEnemy(enemy, dir);
+              continue;
+            }
+          }
           if (distance < contactDistance && !enemy.intangible) {
             player.slow = 0.36;
-            const damage = enemy.contactDamage * dt * (enemy.type === "hugger" ? 0.15 : 1);
-            const now = performance.now() / 1000;
-            if (now - debug.lastContactLog > 0.7) {
-              debug.lastContactLog = now;
-              logEvent("contact", {
-                enemyId: enemy.id,
-                type: enemy.type,
-                distance: round(distance, 2),
-                contactDistance: round(contactDistance, 2),
-                contactDamagePerSecond: round(enemy.contactDamage, 2),
-              });
-            }
-            if (game.invincible <= 0 && game.godMode <= 0) {
-              if (damage > 0) damagePlayer(damage, { source: "contact", enemyId: enemy.id, type: enemy.type });
-              damageStreak({ source: "contact", type: enemy.type });
+            // BITE-on-touch (log-10: the old per-frame `contactDamage*dt` trickle did ~0.17/brush, so the
+            // swarm never threatened). Each enemy lands a real chunk at most every 0.6s.
+            if (enemy.touchCd <= 0 && game.invincible <= 0 && game.godMode <= 0) {
+              enemy.touchCd = enemy.type === "boss" ? 1.1 : 0.6; // a clinging melee boss can't chain-bite you to death (log v5.5: Pack Alpha)
+              const damage = enemy.contactDamage * 0.55 * (enemy.type === "hugger" ? 0.2 : 1);
+              if (damage > 0) {
+                damagePlayer(damage, { source: "contact", enemyId: enemy.id, type: enemy.type });
+                damageStreak({ source: "contact", type: enemy.type });
+                logEvent("contact", { enemyId: enemy.id, type: enemy.type, hit: round(damage, 1) });
+              }
             }
           }
 
@@ -3502,10 +4092,13 @@
           const sink = enemy.intangible > 0 ? -0.9 : 0;
           enemy.group.position.set(enemy.pos.x, enemy.pos.y, surfaceZ(enemy.pos.x, enemy.pos.y) + 0.03 + sink);
           enemy.group.rotation.z = facingToRotation(dir);
+          if (enemy.spawnT != null && enemy.spawnT < 1) enemy.spawnT = Math.min(1, enemy.spawnT + dt / 0.25); // advance the visual spawn-in
+          const spawnPop = enemy.spawnT != null ? easeOutBack(enemy.spawnT) : 1; // back-ease pop on materialize (cosmetic)
           enemy.group.scale.setScalar(
-            (enemy.intangible > 0 ? 0.4 : 1) *
-              (enemy.fuse > 0 ? 1 + (enemy.fuseSwell || 0) * 0.55 : 1) *
-              (enemy.flash > 0 ? 1.08 : 1),
+            spawnPop *
+              (enemy.intangible > 0 ? 0.4 : 1) *
+              (enemy.fuse > 0 ? 1 + easeOutCubic(enemy.fuseSwell || 0) * 0.55 : 1) * // eased fuse swell (faster pop, settle)
+              (1 + (enemy.flash || 0) * 0.22), // hit-pop OVERSHOOT: flash fades 1->0 so the pop (1.22->1) settles smoothly (was a binary 1.08)
           );
           enemy.flash = Math.max(0, enemy.flash - dt * 5);
         }
@@ -3515,16 +4108,30 @@
         for (let i = game.projectiles.length - 1; i >= 0; i -= 1) {
           const projectile = game.projectiles[i];
           projectile.life -= dt;
+          if (projectile.homing && projectile.owner !== "player") {
+            // gently steer toward Santiago — slow turn so a moving player can juke it
+            const want = player.pos.clone().sub(projectile.pos);
+            if (want.lengthSq() > 0.01) {
+              want.normalize().multiplyScalar(projectile.speed);
+              projectile.vel.lerp(want, Math.min(1, projectile.turn * dt));
+              if (projectile.vel.lengthSq() > 0.0001) projectile.vel.normalize().multiplyScalar(projectile.speed);
+            }
+          }
           projectile.pos.addScaledVector(projectile.vel, dt);
           projectile.mesh.position.set(projectile.pos.x, projectile.pos.y, 0.76);
-          projectile.mesh.rotation.z += dt * 8;
+          if (projectile.spin) {
+            projectile.mesh.rotation.z += dt * 6; // spinning rune crystal
+          } else if (projectile.kind !== "axe") {
+            // point the spike (and its tail) along travel direction (apex is +Y → offset -90°)
+            projectile.mesh.rotation.z = Math.atan2(projectile.vel.y, projectile.vel.x) - Math.PI / 2;
+          }
 
           if (game.autoDeflect > 0 && projectile.owner !== "player") {
             deflectProjectile(projectile);
           }
 
           if (projectile.owner !== "player" && projectile.pos.distanceTo(player.pos) < 0.55) {
-            damagePlayer(14 + game.wave * 1.4, { source: "projectile" }); // log-9: enemies did too little dmg
+            damagePlayer(projectile.dmg || 14 + game.wave * 1.4, { source: "projectile" }); // homing rune uses its own (lower) dmg
             if (game.invincible <= 0 && game.godMode <= 0) damageStreak({ source: "projectile" });
             removeProjectile(i);
             continue;
@@ -3561,10 +4168,19 @@
             const target = projectile.target;
             if (!target || target.dead || projectile.pos.distanceTo(target.pos) < 0.72) {
               if (target && !target.dead) {
-                // Deflect one-shots trash, but only CHUNKS a boss/brute (~14% of max) — so you can't
-                // beat a boss by reflecting its own shots; you must actually engage it.
+                // Deflect one-shots trash, but only lightly chips a boss/brute. log-12: the Hex Conduit
+                // (a homing-rune boss) died in 8.5s from 11 deflected runs — because deflect dmg scaled
+                // with maxHp, the big projectile bosses were the EASIEST to deflect-melt. Flat-cap it so
+                // deflect is always a minor chip (≈11 max), never a kill strategy, regardless of boss HP.
                 const heavy = target.type === "boss" || target.type === "brute";
-                const dmg = heavy ? Math.max(6, target.maxHp * 0.14) : 99;
+                let dmg = heavy ? Math.max(5, Math.min(target.maxHp * 0.05, 11)) : 99;
+                // log v5.7: the Rune Warden took ~50 in ONE instant from reflecting its whole 5-shot volley.
+                // Rate-limit a boss's deflect intake — only the first reflected shot in a ~0.45s window lands
+                // full; the rest of the volley just pings. So you can't mirror an entire barrage for a burst.
+                if (target.type === "boss") {
+                  if (target.deflectCd > 0) dmg = 3;
+                  else target.deflectCd = 0.45;
+                }
                 damageEnemy(target, dmg, projectile.vel.clone().normalize());
               }
               removeProjectile(i);
@@ -3631,8 +4247,9 @@
           const effect = game.effects[i];
           effect.life -= dt;
           if (effect.kind === "ring") {
-            effect.mesh.scale.addScalar(dt * effect.speed);
-            effect.mesh.material.opacity = Math.max(0, effect.life / effect.maxLife);
+            const prog = 1 - Math.max(0, effect.life / effect.maxLife);
+            effect.mesh.scale.addScalar(dt * effect.speed * (0.4 + 1.6 * (1 - prog))); // FAST bloom early -> settle (eased, was linear). Visual telegraph only.
+            effect.mesh.material.opacity = Math.max(0, 1 - easeInQuad(prog)); // hold bright then ease out
           } else if (effect.kind === "chunk") {
             effect.vel.y -= dt * 2.8;
             effect.mesh.position.x += effect.vel.x * dt;
@@ -3928,6 +4545,7 @@
           game.stagger = Math.max(game.stagger, 0.2);
         }
         logEvent("bursar-detonate", { hit: player.pos.distanceTo(enemy.pos) < r });
+        spawnMobCorpse("bursar", enemy.pos, enemy.group.rotation.z); // leave the popped (no-head) model behind while the blast fades
         enemy.dead = true;
         groups.actors.remove(enemy.group);
         disposeObject(enemy.group);
@@ -3955,6 +4573,25 @@
         groups.actors.remove(enemy.group);
         disposeObject(enemy.group);
         if (enemy.type === "slammer" || enemy.type === "boss") cancelSlammerTremors(enemy.id); // its attack dies when it dies
+        if (enemy.type === "boss") {
+          // Pure-duel: the boss's summoned mobs die with their master so the section ends cleanly.
+          for (const e of [...game.enemies]) {
+            if (e !== enemy && !e.dead) {
+              createGore(e.pos, new THREE.Vector2(0, 1), 6);
+              e.dead = true;
+              groups.actors.remove(e.group);
+              disposeObject(e.group);
+            }
+          }
+          game.enemies = game.enemies.filter((e) => e === enemy);
+          // also drain summons still in the pre-spawn delay, else one materializes after the boss is dead
+          for (const p of game.pendingSpawns) {
+            groups.actors.remove(p.enemy.group);
+            disposeObject(p.enemy.group);
+          }
+          game.pendingSpawns = [];
+          grantBossUnlock(enemy.kind); // each boss opens the next layer of the kit (spells -> streaks -> 2-mix -> 3-mix)
+        }
         clearDash(enemy); // release the activeDashes fairness slot if it died mid-lunge/charge
         game.kills += 1;
         game.waveKills += 1;
@@ -3986,6 +4623,22 @@
         });
         checkStreakSpecials();
         updateBestStorage();
+      }
+
+      // Boss-gated power progression (per run): each boss opens a new layer of the kit.
+      // Tyrant -> elemental spells | Warden -> streak bank | Alpha -> 2-element mixing | Conduit -> 3-element mixing.
+      function grantBossUnlock(kind) {
+        const u = game.unlocks; if (!u) return;
+        const announce = (msg, color) => {
+          showToast(msg, 3.6);
+          spawnFloater(player.pos, "UNLOCKED", { color: color || 0xfff0a8, size: 30, life: 1.5, rise: 42 });
+          screenPulse(0.26, color || 0xfff0a8);
+          if (typeof playFanfare === "function") playFanfare();
+        };
+        if (kind === "tyrant" && !u.spells) { u.spells = true; announce("The elements awaken — cast Fire / Water / Wind / Lightning (Q).", 0xff6a1a); }
+        else if (kind === "warden" && !u.streaks) { u.streaks = true; announce("Streak powers unsealed — your milestone bank can now be cast (E).", 0x9be7ff); }
+        else if (kind === "alpha" && !u.mix2) { u.mix2 = true; announce("SPELL-MIXING I — chain 2 elements within a beat to fuse a combo.", 0xff9bf2); }
+        else if (kind === "conduit" && !u.mix3) { u.mix3 = true; announce("SPELL-MIXING II — chain 3 elements for the apex combos (Tempest, Deluge).", 0xbff0ff); }
       }
 
       // Fair streak loss (post log-5): one graze no longer wipes a 180-streak run. Each hit lops
@@ -4057,7 +4710,10 @@
         game.state = "wave";
         game.waveKills = 0;
         game.spawned = 0;
-        game.waveTotal = Math.ceil(3 * Math.pow(1.5, wave - 1));
+        // Boss waves (every 3rd) are PURE DUELS — no climbing trash; only the boss + what IT summons.
+        // Curve flattened (per playtest): early waves ~6x denser (base 3->18), growth eased 1.5->1.3 so late waves stay
+        // near today's totals instead of exploding. w1≈18, w5≈51, w11≈245, w14≈538 (was 3/16/173/584).
+        game.waveTotal = wave % 3 === 0 ? 0 : Math.ceil(18 * Math.pow(1.3, wave - 1));
         game.spawnTimer = 0.15;
         game.shakeTimer = 6 + Math.random() * 6;
         game.shake = 0;
@@ -4085,7 +4741,7 @@
         logEvent("wave-start", {
           wave,
           waveTotal: game.waveTotal,
-          activeCap: Math.min(ACTIVE_CAP, 8 + Math.floor(game.wave * 0.7)),
+          activeCap: activeCapFor(game.wave),
           birthdayWave: game.birthdayWave,
         });
 
@@ -4103,17 +4759,39 @@
       // Tear down wave-time hazards so a telegraphed slam/strike can't fire during the climb breather
       // and a pending spawn can't pop after the wave is over. Hands the axe back for the next wave.
       function clearWaveHazards() {
+        const HAZARD = (k) => k === "tremor" || k === "strike" || k === "hexsigil" || k === "hexbeam";
         for (const z of game.zones) {
-          if (z.kind === "tremor" || z.kind === "strike") {
+          if (HAZARD(z.kind)) {
             groups.effects.remove(z.mesh);
             disposeObject(z.mesh);
             if (z.disc) {
               groups.effects.remove(z.disc);
               disposeObject(z.disc);
             }
+            if (z.meteorMesh) {
+              groups.effects.remove(z.meteorMesh);
+              disposeObject(z.meteorMesh);
+              z.meteorMesh = null;
+            }
           }
         }
-        game.zones = game.zones.filter((z) => z.kind !== "tremor" && z.kind !== "strike");
+        game.zones = game.zones.filter((z) => !HAZARD(z.kind));
+        // a wave ending mid-cast shouldn't leave timed specials telegraphing/animating into the breather
+        game.fistPhase2 = 0;
+        game.fireworksT = 0;
+        game.geyser = 0;
+        game.carnage = 0;
+        game.phaseDash = 0;
+        if (game.geyserMesh) {
+          groups.effects.remove(game.geyserMesh);
+          disposeObject(game.geyserMesh);
+          game.geyserMesh = null;
+        }
+        if (game.phaseShell) {
+          player.group.remove(game.phaseShell);
+          disposeObject(game.phaseShell);
+          game.phaseShell = null;
+        }
         for (const p of game.pendingSpawns) {
           groups.actors.remove(p.enemy.group);
           disposeObject(p.enemy.group);
@@ -4203,6 +4881,27 @@
         if (game.state === "dead") return;
         game.state = "dead";
         game.started = false;
+        game.worldSlow = 0; // else the bullet-time veil/state freezes on the death screen (updateHud stops running)
+        game.windFrenzy = 0;
+        if (timeVeil) timeVeil.classList.remove("active");
+        // tear down the mega-suite timed specials so nothing freezes on the death overlay
+        game.phaseDash = 0;
+        game.twinHunt = 0;
+        game.carnage = 0;
+        game.fireworksT = 0;
+        game.fistPhase2 = 0;
+        game.geyser = 0;
+        if (game.phaseShell) {
+          player.group.remove(game.phaseShell);
+          disposeObject(game.phaseShell);
+          game.phaseShell = null;
+        }
+        if (game.geyserMesh) {
+          groups.effects.remove(game.geyserMesh);
+          disposeObject(game.geyserMesh);
+          game.geyserMesh = null;
+        }
+        for (const kid of kids) kid.group.scale.setScalar(kid.baseScale);
         game.health = 0;
         game.streak = 0; // death is the one hard reset of the streak (partial drops handle grazes)
         game.lastRankName = "";
@@ -4244,6 +4943,7 @@
         }
         floaters.length = 0;
         game.earnedThresholds = new Set();
+        game.unlocks = { spells: false, streaks: false, mix2: false, mix3: false }; // new run -> re-lock the boss-gated kit
         game.specials = [];
         game.selectedSpecial = 0;
         game.streakBank = [];
@@ -4257,6 +4957,26 @@
         game.speedBoost = 0;
         game.kidHunt = 0;
         game.kidHuntDamage = 0;
+        game.worldSlow = 0;
+        game.windFrenzy = 0;
+        game.comboEls = {};
+        game.phaseDash = 0;
+        game.twinHunt = 0;
+        game.carnage = 0;
+        game.fireworksT = 0;
+        game.fistPhase2 = 0;
+        game.geyser = 0;
+        if (game.phaseShell) {
+          player.group.remove(game.phaseShell);
+          disposeObject(game.phaseShell);
+          game.phaseShell = null;
+        }
+        if (game.geyserMesh) {
+          groups.effects.remove(game.geyserMesh);
+          disposeObject(game.geyserMesh);
+          game.geyserMesh = null;
+        }
+        for (const kid of kids) kid.group.scale.setScalar(kid.baseScale);
         game.autoDeflect = 0;
         game.invincible = 0;
         game.godMode = 0;
@@ -4307,6 +5027,11 @@
           if (z.disc) {
             groups.effects.remove(z.disc);
             disposeObject(z.disc);
+          }
+          if (z.meteorMesh) {
+            groups.effects.remove(z.meteorMesh);
+            disposeObject(z.meteorMesh);
+            z.meteorMesh = null;
           }
         }
         for (const p of game.pendingSpawns) {
@@ -4429,6 +5154,7 @@
       function materializeEnemy(enemy, ringColor) {
         groups.actors.add(enemy.group);
         game.enemies.push(enemy);
+        enemy.spawnT = 0; // 0..1 visual spawn-in (eased scale pop in the enemy scale product; cosmetic only)
         createRing(enemy.pos, ringColor, enemy.radius * 1.3); // emergence pop at materialize
         if (game.spawned < 8 || enemy.type !== "basic") {
           logEvent("enemy-spawn", {
@@ -4450,20 +5176,20 @@
           for (const p of game.pendingSpawns) if (p.type === t) n += 1;
           return n;
         };
+        // Intro schedule re-spaced so each 2-wave climb section teaches its mobs, and its boss (every 3rd
+        // wave) is the EXAM of exactly those mobs: §1 basics, §2 ranged/guard, §3 predators, §4 caster/bomb,
+        // §5 spitter+recap. (slammer stays camp-only; see updateTimers.)
         const options = ["basic"];
-        if (game.wave >= 3) options.push("crawler");
-        if (game.wave >= 4) options.push("hugger");
-        if (game.wave >= 6) options.push("ranged");
-        if (game.wave >= 7) options.push("stalker");
-        if (game.wave >= 6) options.push("shield");
-        if (game.wave >= 7 && aliveOf("lurker") < 2) options.push("lurker");
-        if (game.wave >= 8) options.push("brute");
-        // NOTE: "slammer" (Stonebreaker) is NOT in the normal pool anymore — it is spawned ONLY by the
-        // camp system (see updateTimers), so active players aren't swarmed by it. See log-7: it used to
-        // respawn ~every 11s and crushed streaks.
-        if (game.wave >= 9) options.push("wisp");
-        if (game.wave >= 9 && aliveOf("bursar") < 2) options.push("bursar");
-        if (game.wave >= 13) options.push("spitter");
+        if (game.wave >= 2) options.push("crawler"); // §1
+        if (game.wave >= 2) options.push("hugger"); // §1
+        if (game.wave >= 4) options.push("ranged"); // §2
+        if (game.wave >= 5) options.push("shield"); // §2
+        if (game.wave >= 7) options.push("stalker"); // §3
+        if (game.wave >= 7 && aliveOf("lurker") < 2) options.push("lurker"); // §3
+        if (game.wave >= 8) options.push("brute"); // §3
+        if (game.wave >= 10) options.push("wisp"); // §4
+        if (game.wave >= 11 && aliveOf("bursar") < 2) options.push("bursar"); // §4
+        if (game.wave >= 13) options.push("spitter"); // §5
         const weights = options.map((type) => {
           if (type === "basic") return Math.max(1.4, 6 - game.wave * 0.34);
           if (type === "crawler") return 2.4;
@@ -4497,30 +5223,44 @@
         game.enemies.push(boss);
         game.boss = boss;
         logEvent("boss-spawn", { id: boss.id, name: boss.name, hp: round(boss.hp, 2) });
-        showToast(`Boss wave. ${boss.name} climbs with the mob.`);
+        showToast(`${boss.name} blocks the path — break it to climb on.`, 2.6);
       }
 
       function spawnProjectile(enemy, angleOffset = 0) {
-        // A glowing, spinning barbed SPIKE (additive) so an incoming shot never reads like a calm,
-        // matte gem PICKUP (log-5 note: projectiles must look different from drops).
-        const mesh = new THREE.Mesh(
-          new THREE.ConeGeometry(0.22, 0.66, 4),
-          new THREE.MeshBasicMaterial({
-            transparent: true,
-            opacity: 0.96,
-            blending: THREE.AdditiveBlending,
-            depthWrite: false,
-          }),
-        );
-        mesh.material.color.set(
+        // A glowing barbed SPIKE that POINTS along its travel + drags a bright comet tail (additive), so
+        // an incoming shot reads instantly (log-10: projectiles were hard to see) and never like a drop.
+        const color =
           enemy.type === "boss"
             ? 0xff6a4a
             : enemy.type === "spitter"
               ? 0x6fef8a
               : enemy.type === "wisp"
                 ? 0xfff6e8
-                : 0x98e8ff,
+                : 0x98e8ff;
+        // A THIN dart — just a small bright tip, so the shot reads as a fine trace of its trajectory.
+        const mesh = new THREE.Mesh(
+          new THREE.ConeGeometry(0.09, 0.5, 4),
+          new THREE.MeshBasicMaterial({
+            transparent: true,
+            opacity: 0.98,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+          }),
         );
+        mesh.material.color.set(color);
+        // Thin trace tail — a slim additive streak behind the tip (inherits the tip's velocity orientation).
+        const tail = new THREE.Mesh(
+          new THREE.PlaneGeometry(0.08, 2.0),
+          new THREE.MeshBasicMaterial({
+            color,
+            transparent: true,
+            opacity: 0.38,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+          }),
+        );
+        tail.position.set(0, -1.1, -0.02); // behind the apex (cone apex points +Y)
+        mesh.add(tail);
         const pos = enemy.pos.clone();
         const projectileSpeed =
           enemy.type === "wisp" ? 5.2 + game.wave * 0.035 : enemy.type === "spitter" ? 3.6 : 4.1 + game.wave * 0.02;
@@ -4538,6 +5278,35 @@
           shooter: enemy,
         });
         logEvent("projectile-spawn", { enemyId: enemy.id, type: enemy.type });
+      }
+
+      // RUNE WISP's slow HOMING rune — a spinning crystal that gently tracks Santiago (outrun-able).
+      function spawnHomingRune(enemy) {
+        const color = 0xc9a0ff;
+        const mesh = new THREE.Mesh(
+          new THREE.OctahedronGeometry(0.34, 0),
+          new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.92, blending: THREE.AdditiveBlending, depthWrite: false }),
+        );
+        const pos = enemy.pos.clone();
+        const speed = 2.6 + game.wave * 0.04;
+        const vel = player.pos.clone().sub(pos).normalize().multiplyScalar(speed);
+        mesh.position.set(pos.x, pos.y, 0.76);
+        groups.effects.add(mesh);
+        game.projectiles.push({
+          mesh,
+          pos,
+          vel,
+          owner: "enemy",
+          homing: true,
+          spin: true,
+          turn: 2.4, // steering rate (lerp factor) — slow enough to juke
+          speed,
+          dmg: 9 + game.wave * 0.8,
+          life: 4, // matches a normal shot so a lingering rune can't stall wave-clear
+          shooter: enemy,
+        });
+        blip({ type: "sine", freq: 300, dur: 0.12, gain: 0.06 });
+        logEvent("projectile-spawn", { enemyId: enemy.id, type: "wisp-homing" });
       }
 
       function deflectProjectile(projectile) {
@@ -4834,6 +5603,7 @@
       function castSelectedSpecial() {
         // Element bank (Q / element-bar tap). Only castable mid-wave.
         if (!game.specials.length || game.state !== "wave") return;
+        if (!game.unlocks.spells) { showToast("The elements are sealed — defeat the Grave Tyrant to channel them.", 2.6); return; }
         const special = game.specials.splice(game.selectedSpecial, 1)[0];
         game.selectedSpecial = Math.max(0, Math.min(game.selectedSpecial, game.specials.length - 1));
         logEvent("special-cast", { label: special.label, effect: special.effect });
@@ -4844,6 +5614,7 @@
       function castSelectedStreak() {
         // Streak-milestone bank (E / Streak button / streak-bar tap). Never fires from Q.
         if (!game.streakBank.length || game.state !== "wave") return;
+        if (!game.unlocks.streaks) { showToast("Streak powers are sealed — defeat the Rune Warden to wield them.", 2.6); return; }
         const special = game.streakBank.splice(game.selectedStreak, 1)[0];
         game.selectedStreak = Math.max(0, Math.min(game.selectedStreak, game.streakBank.length - 1));
         logEvent("special-cast", { label: special.label, effect: special.effect, bank: "streak" });
@@ -4854,6 +5625,7 @@
       // Cast the first banked special matching an element effect (number-key 1-4 direct-cast).
       function castElement(effect) {
         if (game.state !== "wave") return;
+        if (!game.unlocks.spells) { showToast("The elements are sealed — defeat the Grave Tyrant to channel them.", 2.6); return; }
         const idx = game.specials.findIndex((s) => s.effect === effect);
         if (idx < 0) {
           blip({ type: "square", freq: 140, dur: 0.05, gain: 0.05 }); // "none banked" tick
@@ -4886,12 +5658,198 @@
         impact(big ? "finale" : "special", player.pos, color);
       }
 
+      // ============================ ELEMENT SYNERGY (combo) SYSTEM ============================
+      // Cast-stack window: each element cast joins a rolling set (prunes after 2.5s). A 2nd/3rd distinct
+      // element within the window fires a COMBO instead of the solo spell. Rules: Wind amplifies
+      // (Fire->tornado, Lightning->storm), Water douses Fire->Steam & Wind->Fog but conducts Lightning
+      // (Electric Field), Fire+Lightning=Plasma, Fire+Lightning+Wind=Tempest.
+      const COMBO_WINDOW = 2.5;
+
+      // Roaming/static "field" combos modelled as zones; Plasma & Deluge are one-shots (handled in run()).
+      const COMBO_ZONES = {
+        firetornado: { roam: true, speed: 5.0, burn: true, pull: 18, dmg: 6, element: "fire", color: 0xff6a1a, radius: 3.0, life: 3.6, tall: true },
+        stormtornado: { roam: true, speed: 5.6, shock: true, pull: 8, dmg: 7, element: "lightning", color: 0x9be7ff, radius: 3.0, life: 3.6, tall: true },
+        tempest: { roam: true, speed: 5.2, burn: true, shock: true, pull: 16, dmg: 9, element: "lightning", color: 0xbff0ff, radius: 4.0, life: 4.8, tall: true },
+        electricfield: { roam: false, shock: true, dmg: 6, element: "lightning", color: 0x9be7ff, radius: 5.2, life: 3.6 },
+        // steam / fog DISABLED (removed per design) — no combo references them anymore.
+      };
+
+      function spawnComboZone(kind, pos) {
+        const def = COMBO_ZONES[kind];
+        // BASE ground swirl — updateZones (combat) drives its position/spin/opacity (contract unchanged). The rich
+        // VISUAL (vertical VORTEX for tall combos, crackling arcs for the electric field, billowing puffs for
+        // steam/fog) is built as `disc`, animated by updateComboZoneVisuals and auto-disposed by updateZones on
+        // zone end. PRESENTATION-ONLY — the zone EFFECT (pull/dmg/burn/shock) is the combat session's and untouched.
+        const mesh = new THREE.Mesh(
+          new THREE.CircleGeometry(def.radius, 30),
+          new THREE.MeshBasicMaterial({ color: def.color, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
+        );
+        mesh.position.set(pos.x, pos.y, 0.08);
+        groups.effects.add(mesh);
+        const disc = buildComboFx(def, kind);
+        disc.position.set(pos.x, pos.y, 0.1);
+        groups.effects.add(disc);
+        game.zones.push({ kind: "combo", combo: def, pos: pos.clone(), radius: def.radius, life: def.life, maxLife: def.life, mesh, disc, tick: 0 });
+      }
+
+      // ---- COMBO-ZONE AESTHETICS (visual only; reads zone state, writes only the `disc` visual) ----
+      const cBrighten = (hex, k) => { k = k == null ? 90 : k; const r = Math.min(255, ((hex >> 16) & 255) + k), g = Math.min(255, ((hex >> 8) & 255) + k), b = Math.min(255, (hex & 255) + k); return (r << 16) | (g << 8) | b; };
+      function buildComboFx(def, kind) {
+        const g = new THREE.Group();
+        const col = def.color, R = def.radius;
+        const mat = (op, color, normal) => new THREE.MeshBasicMaterial({ color: color, transparent: true, opacity: op, depthWrite: false, blending: normal ? THREE.NormalBlending : THREE.AdditiveBlending, side: THREE.DoubleSide, fog: true });
+        const fx = { spin: null, motes: [], arcs: [], puffs: [], tall: !!def.tall, H: R * 3.2 };
+        if (def.tall) {
+          const H = fx.H, bright = cBrighten(col, 110);
+          const spin = new THREE.Group();
+          // nested open funnel shells — narrow base, flaring top (classic tornado), flattened toward the body
+          for (let sN = 0; sN < 3; sN += 1) {
+            const rTop = R * (0.6 + sN * 0.24), rBot = R * (0.12 + sN * 0.05);
+            const shell = new THREE.Mesh(new THREE.CylinderGeometry(rTop, rBot, H, 20, 1, true), mat(0.09 + sN * 0.02, col));
+            shell.position.y = H / 2; shell.rotation.y = sN * 0.8; shell.userData.baseOp = 0.09 + sN * 0.02;
+            spin.add(shell);
+          }
+          // helix strands — the clear twisting read
+          for (let st = 0; st < 5; st += 1) {
+            const pts = [];
+            for (let k = 0; k <= 26; k += 1) { const u = k / 26; const a = u * Math.PI * 2 * 2.6 + (st / 5) * Math.PI * 2; const rr = R * (0.14 + u * 0.6); pts.push(new THREE.Vector3(Math.cos(a) * rr, u * H, Math.sin(a) * rr)); }
+            const ribbon = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 28, R * 0.05, 5, false), mat(0.6, bright));
+            ribbon.userData.baseOp = 0.6; spin.add(ribbon);
+          }
+          spin.scale.z = 0.6; // flatten toward the body so it reads cleanly from the fixed cam and limits clipping
+          g.add(spin); fx.spin = spin;
+          // rising motes that spiral up the funnel
+          for (let i = 0; i < 16; i += 1) {
+            const mo = new THREE.Mesh(new THREE.PlaneGeometry(R * 0.13, R * 0.13), mat(0.8, bright));
+            mo.userData = { baseOp: 0.8, ang: rand(0, Math.PI * 2), h: i / 16, spd: 0.5 + (i % 5) * 0.12 };
+            g.add(mo); fx.motes.push(mo);
+          }
+        } else if (def.shock) {
+          // ELECTRIC FIELD: a perimeter ring + crackling arcs that re-jitter
+          const ring = new THREE.Mesh(new THREE.RingGeometry(R * 0.85, R, 40), mat(0.5, col, true));
+          ring.userData.baseOp = 0.5; g.add(ring); fx.ring = ring;
+          for (let i = 0; i < 6; i += 1) { const arc = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat(0, cBrighten(col, 120))); arc.userData = { baseOp: 0.9, next: 0 }; g.add(arc); fx.arcs.push(arc); }
+        } else {
+          // STEAM / FOG: a low cluster of soft billowing puffs (pale, drifting up + out)
+          const tex = glowTexture();
+          for (let i = 0; i < 13; i += 1) {
+            const puff = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: tex || null, color: col, transparent: true, opacity: 0, depthWrite: false, blending: THREE.NormalBlending, fog: true }));
+            puff.userData = { baseOp: 0.5, ang: (i / 13) * Math.PI * 2, rad: R * (0.18 + (i % 4) * 0.22), sz: R * (0.62 + (i % 4) * 0.18), ph: i, rise: R * (0.3 + (i % 3) * 0.18) };
+            g.add(puff); fx.puffs.push(puff);
+          }
+        }
+        g.userData.fx = fx;
+        return g;
+      }
+
+      function updateComboZoneVisuals(dt) {
+        const now = performance.now() / 1000;
+        for (let i = 0; i < game.zones.length; i += 1) {
+          const z = game.zones[i];
+          if (z.kind !== "combo" || !z.disc) continue;
+          z.disc.position.set(z.pos.x, z.pos.y, 0.1);
+          const fx = z.disc.userData.fx; if (!fx) continue;
+          const inT = Math.min(1, (z.maxLife - z.life) / 0.3); // ease-in 0.3s
+          const fade = Math.max(0, Math.min(inT, (z.life / z.maxLife) * 1.25)); // + ease-out near the end
+          if (fx.spin) { fx.spin.rotation.y += dt * 9; fx.spin.children.forEach((c) => { if (c.material && c.userData.baseOp != null) c.material.opacity = c.userData.baseOp * fade; }); }
+          for (let m = 0; m < fx.motes.length; m += 1) {
+            const mo = fx.motes[m], u = mo.userData; u.h += dt * u.spd * 0.45; if (u.h > 1) u.h -= 1; u.ang += dt * 6.5;
+            const rr = z.radius * (0.14 + u.h * 0.6);
+            mo.position.set(Math.cos(u.ang) * rr, u.h * fx.H, Math.sin(u.ang) * rr * 0.6);
+            mo.material.opacity = u.baseOp * fade * (1 - u.h * 0.85);
+            if (mo.lookAt) mo.lookAt(camera.position);
+          }
+          if (fx.ring && fx.ring.material) fx.ring.material.opacity = fx.ring.userData.baseOp * fade * (0.7 + 0.3 * Math.sin(now * 9));
+          for (let a = 0; a < fx.arcs.length; a += 1) {
+            const arc = fx.arcs[a];
+            if (now > arc.userData.next) {
+              arc.userData.next = now + 0.04 + Math.random() * 0.12;
+              const ang = rand(0, Math.PI * 2), len = z.radius * rand(0.4, 0.95), rr = z.radius * rand(0.1, 0.55);
+              arc.scale.set(z.radius * 0.05, len, 1);
+              arc.position.set(Math.cos(ang) * rr, 0.15 + len * 0.5, Math.sin(ang) * rr * 0.5);
+              arc.rotation.z = rand(-0.7, 0.7);
+              arc.material.opacity = arc.userData.baseOp * fade;
+            } else if (arc.material) {
+              arc.material.opacity *= 0.62; // fast flicker decay
+            }
+          }
+          for (let p = 0; p < fx.puffs.length; p += 1) {
+            const pf = fx.puffs[p], u = pf.userData; u.ang += dt * 0.45;
+            const r = u.rad + Math.sin(now * 0.6 + u.ph) * z.radius * 0.12;
+            const yy = 0.3 + (0.5 + 0.5 * Math.sin(now * 0.5 + u.ph)) * u.rise;
+            pf.position.set(Math.cos(u.ang) * r, yy, Math.sin(u.ang) * r * 0.6);
+            pf.scale.setScalar(u.sz);
+            pf.material.opacity = u.baseOp * fade * 0.8;
+            if (pf.lookAt) pf.lookAt(camera.position);
+          }
+        }
+      }
+
+
+      const COMBO_TABLE = {
+        "fire+wind": { name: "Fire Tornado", color: 0xff6a1a, run: (p) => spawnComboZone("firetornado", p) },
+        "lightning+wind": { name: "Storm Tornado", color: 0x9be7ff, run: (p) => spawnComboZone("stormtornado", p) },
+        "lightning+water": { name: "Electric Field", color: 0x9be7ff, run: (p) => spawnComboZone("electricfield", p) },
+        "fire+lightning": { name: "Plasma Burst", color: 0xff9bf2, run: (p) => plasmaBurst(p) },
+        // (Steam Cloud [fire+water] and Fog Squall [water+wind] DISABLED per design — those pairs now cast the solo element.)
+        "fire+lightning+wind": { name: "TEMPEST", color: 0xbff0ff, run: (p) => spawnComboZone("tempest", p) },
+        // water in a triple just conducts lightning -> Electric Field (steam/fog puffs removed)
+        "fire+lightning+water": { name: "Electric Field", color: 0x9be7ff, run: (p) => spawnComboZone("electricfield", p) },
+        "lightning+water+wind": { name: "Electric Field", color: 0x9be7ff, run: (p) => spawnComboZone("electricfield", p) },
+        "fire+water+wind": { name: "Deluge", color: 0x3aa6ff, run: (p) => createWaterWaveZone(p, 13, 22) },
+        // (no 4-element entry: the chain caps at 3 distinct elements by design — "a mix of up to 3".)
+      };
+
+      function plasmaBurst(pos) {
+        radialDamage(pos, 7.5, 32);
+        createFlameBurst(pos, 7.5);
+        createRing(pos, 0xff9bf2, 8);
+        addTrauma(0.7);
+        screenPulse(0.3, 0xff9bf2);
+        blip({ type: "sawtooth", freq: 180, dur: 0.18, gain: 0.16, freqEnd: 60 });
+      }
+
+      // Returns true if a combo fired (so the caller skips the solo element effect).
+      function handleElementCombo(special, pos) {
+        const el = special.effect;
+        const now = performance.now() / 1000;
+        for (const k of Object.keys(game.comboEls)) {
+          if (now - game.comboEls[k] > COMBO_WINDOW) delete game.comboEls[k];
+        }
+        // Mixing is boss-gated: Pack Alpha unlocks 2-element fusion, Hex Conduit unlocks 3-element.
+        const maxTier = game.unlocks.mix3 ? 3 : game.unlocks.mix2 ? 2 : 1;
+        if (maxTier === 1) { game.comboEls = {}; return false; } // mixing still locked -> always cast solo
+        game.comboEls[el] = now;
+        let set = Object.keys(game.comboEls);
+        if (set.length < 2) return false; // first element of a chain → run its solo spell
+        if (set.length > maxTier) {
+          // chain exceeds the unlocked tier (e.g. a 3rd element before 3-mixing is earned) -> start fresh, cast solo
+          game.comboEls = {}; game.comboEls[el] = now;
+          return false;
+        }
+        const combo = COMBO_TABLE[set.slice().sort().join("+")];
+        if (!combo) {
+          // No combo for this set (e.g. steam/fog disabled) -> fall back to the solo element instead of fizzling.
+          if (set.length >= 3) game.comboEls = {};
+          return false;
+        }
+        combo.run(pos);
+        showToast(combo.name + "!");
+        spawnFloater(player.pos, combo.name.toUpperCase(), { color: combo.color, size: 32, life: 1.25, rise: 42 });
+        addTrauma(0.4);
+        logEvent("combo-cast", { combo: combo.name, set });
+        if (set.length >= 3) game.comboEls = {}; // triple is the cap — reset the chain
+        return true; // a real combo supersedes the solo effect
+      }
+
       function executeSpecial(special) {
         const pos = player.pos.clone();
         const radius = special.radius || 6;
         const damage = special.damage || 1;
         showToast(`${special.label}!`);
         triggerCastJuice(special);
+
+        if (isElementEffect(special.effect) && handleElementCombo(special, pos)) return;
 
         if (special.effect === "fire") {
           // FIRE = a lingering ground inferno that burns anything standing in it (DoT zone, not a blast).
@@ -4931,63 +5889,97 @@
           // WATER = an expanding shockwave that shoves the descending column back as it passes.
           createWaterWaveZone(pos, radius * 1.35, damage);
         } else if (special.effect === "wind") {
-          // WIND = a vortex that flings enemies outward and vacuums pickups to Santiago.
-          for (const enemy of game.enemies) {
-            if (enemy.pos.distanceTo(pos) < radius) {
-              const out = enemy.pos.clone().sub(pos);
-              if (out.lengthSq() < 0.01) out.set(0, 1);
-              if (enemy.knockVel) enemy.knockVel.addScaledVector(out.normalize(), 16);
-              enemy.stunned = Math.max(enemy.stunned, 0.5);
-              elementHit(enemy, damage, "wind", out);
-            }
-          }
-          for (const pk of game.pickups) {
-            const pull = player.pos.clone().sub(pk.pos);
-            if (pull.length() < radius * 1.6) pk.pos.add(pull.multiplyScalar(0.7));
-          }
+          // WIND = a whirlwind the kids spin up that FOLLOWS Santiago for ~2s, flinging + chipping any
+          // enemy near him and vacuuming pickups (the per-frame work runs in updateTimers).
+          game.windFrenzy = 2;
+          game.windFrenzyR = radius;
           createWindSwirl(pos, radius);
+          addTrauma(0.2);
         } else if (special.effect === "slow") {
-          // SLOW = remove MOVEMENT only. A wide, calm dome that herds a scattered crowd into a
-          // clump (set up a fire-zone / wind-vortex) and bends time. No damage, no knockback, no shake.
-          const dome = radius * 1.4;
-          for (const enemy of game.enemies) {
-            if (enemy.pos.distanceTo(pos) < dome) enemy.slowed = Math.max(enemy.slowed, 5);
-          }
-          createSlowDome(pos, dome);
-          slowFilterSwell(3);
+          // SLOW = time crawls for the whole WORLD (enemies/projectiles/hazards) for 12s while Santiago
+          // keeps full speed — a bullet-time window to carve through the swarm (see wDt in the loop).
+          game.worldSlow = 12;
+          slowFilterSwell(12); // underwater audio for the duration
+          screenPulse(0.22, 0x3aa6ff);
+          createSlowDome(pos, radius * 1.6);
+          if (damage) radialDamage(pos, radius * 1.4, damage);
           blip({ type: "sine", freq: 340, dur: 0.5, gain: 0.08, freqEnd: 110 });
+        } else if (special.effect === "champagne") {
+          // CONFETTI (birthday cup): a festive champagne burst that pops the crowd.
+          radialDamage(pos, radius, damage);
+          createChampagne(pos, 40);
+          createFireworks(pos, 30, 0xffd24c);
+          addTrauma(0.4);
         } else if (special.effect === "stun") {
-          // STUN = remove EVERYTHING. A snappy lockdown ring that opens a guaranteed window
-          // (and shatters Bulwark guards). Hard freeze + white flash + a burst of stars.
-          game.hitStop = Math.max(game.hitStop, 0.12);
-          screenPulse(0.34, 0xffffff);
+          // KID STUN: the kids streak out to EVERY mob on the field and pin it in place for 6s.
+          game.hitStop = Math.max(game.hitStop, 0.1);
+          screenPulse(0.3, 0x9be7ff);
           addTrauma(0.22);
-          for (const enemy of game.enemies) {
-            if (enemy.pos.distanceTo(pos) < radius) {
-              enemy.stunned = Math.max(enemy.stunned, 2.6);
-              damageEnemy(enemy, damage, enemy.pos.clone().sub(pos));
-              createHitSpark(enemy.pos, 0xffffff, 3);
-            }
+          for (const enemy of [...game.enemies]) {
+            if (enemy.dead || enemy.intangible > 0) continue;
+            enemy.stunned = Math.max(enemy.stunned, 6);
+            enemy.rooted = Math.max(enemy.rooted, 6);
+            damageEnemy(enemy, damage, new THREE.Vector2(0, 1));
+            createKidImpact(player.pos, enemy.pos, Math.random() < 0.5 ? 0xffd24c : 0x65d5ff);
+            createHitSpark(enemy.pos, 0x9be7ff, 3);
           }
-          createRing(pos, 0xffffff, radius);
           blip({ type: "sine", freq: 480, dur: 0.1, gain: 0.13 });
-          blip({ type: "sine", freq: 58, dur: 0.22, gain: 0.16 });
         } else if (special.effect === "buffHit") {
+          // SPARK: a thin ~15°-wide cone of bright sparks that stays live for 2s, shredding what's in it.
           game.maxChargeBuff = true;
-          game.chargeSpeedBuff = 6;
-          createChainSweep(pos, player.facing, 4.5, 0xf8bf48);
+          spawnSparkCone(pos, player.facing.clone(), damage);
         } else if (special.effect === "speed") {
           game.speedBoost = Math.max(game.speedBoost, special.threshold >= 600 ? 14 : 9);
           game.chargeSpeedBuff = Math.max(game.chargeSpeedBuff, 5);
           createSpeedBurst(pos);
+        } else if (special.effect === "phasedash") {
+          // SPRINT: a holographic shell + 3x speed for 4s; Santiago insta-kills anything he passes through.
+          game.phaseDash = 4;
+          game.invincible = Math.max(game.invincible, 0.2);
+          if (!game.phaseShell) {
+            const shell = new THREE.Mesh(
+              new THREE.SphereGeometry(0.95, 16, 12),
+              new THREE.MeshBasicMaterial({
+                color: 0x9be7ff,
+                transparent: true,
+                opacity: 0.34,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false,
+                side: THREE.DoubleSide,
+                wireframe: true,
+              }),
+            );
+            shell.position.set(0, 0, 0.6);
+            player.group.add(shell);
+            game.phaseShell = shell;
+          }
+          createSpeedBurst(pos);
         } else if (special.effect === "deflect") {
-          game.autoDeflect = 8;
+          // DEFLECT: a shockwave that hurls every nearby mob off the map — instant kill (bosses just reel).
+          for (const e of [...game.enemies]) {
+            if (e.dead || e.pos.distanceTo(player.pos) > 11) continue;
+            const out = e.pos.clone().sub(player.pos);
+            if (out.lengthSq() < 0.01) out.set(0, 1);
+            out.normalize();
+            if (e.type === "boss") {
+              if (e.knockVel) e.knockVel.addScaledVector(out, 26);
+              damageEnemy(e, 70, out);
+            } else {
+              if (e.knockVel) e.knockVel.addScaledVector(out, 40);
+              createGore(e.pos, out, 14);
+              killEnemy(e, out);
+            }
+          }
+          createRing(player.pos, 0x9be7ff, 11);
           createGlassesFlash();
+          addTrauma(0.6);
+          screenPulse(0.24, 0x9be7ff);
         } else if (special.effect === "carnage") {
-          game.chargeSpeedBuff = 10;
+          // CARNAGE: a spectral blade-storm orbits Santiago for 4s, shredding anything near him.
+          game.carnage = 4;
           game.maxChargeBuff = true;
-          for (const enemy of game.enemies) enemy.slowed = Math.max(enemy.slowed, 2.2);
           createChainSweep(pos, player.facing, 7, 0xff7138, true);
+          addTrauma(0.4);
         } else if (special.effect === "frenzy") {
           game.invincible = 7;
           game.chargeSpeedBuff = 7;
@@ -4996,24 +5988,27 @@
           game.godMode = 11;
           createGodDadAura(pos);
         } else if (special.effect === "root") {
-          // ROOT = remove the FEET only. A snare that pins fast movers (stalkers/wisps) in place;
-          // they can still flail, but they cannot close distance. Low earth-thunk.
-          for (const enemy of game.enemies) {
-            if (enemy.pos.distanceTo(pos) < radius) {
-              enemy.rooted = Math.max(enemy.rooted, 5);
-              damageEnemy(enemy, damage, enemy.pos.clone().sub(pos));
-            }
-          }
+          // ROOTS: a field of giant thorn spikes ERUPTS across the crowd, impaling + pinning everything.
+          const targets = pickStrikeTargets(12, radius);
+          targets.forEach((t, n) => scheduleThorns(t, 0.08 + n * 0.07, 2.4, damage));
           createRootLines(pos, radius);
+          addTrauma(0.45);
           blip({ type: "sine", freq: 92, dur: 0.3, gain: 0.16, freqEnd: 44 });
           noiseBurst({ dur: 0.08, gain: 0.06 });
         } else if (special.effect === "kidHunt") {
-          game.kidHunt = Math.max(game.kidHunt, damage >= 999 ? 12 : 8);
+          // KID RAID: all kids leave Santiago and roam the whole field hunting for 18s (see updateKids).
+          game.kidHunt = Math.max(game.kidHunt, 18);
           game.kidHuntDamage = damage;
           createKidPulse(pos, 0xf8bf48, radius);
           for (const enemy of game.enemies) {
             if (enemy.pos.distanceTo(pos) < radius * 0.7) enemy.slowed = Math.max(enemy.slowed, 1.8);
           }
+        } else if (special.effect === "twinhunt") {
+          // TWIN HUNT: the two lead kids SUPERSIZE and roam the field insta-executing on touch for 12s.
+          game.twinHunt = 12;
+          createKidPulse(pos, 0xff4a3a, radius);
+          screenPulse(0.22, 0xff4a3a);
+          addTrauma(0.3);
         } else if (special.effect === "net") {
           for (const enemy of game.enemies) {
             if (enemy.pos.distanceTo(pos) < radius) {
@@ -5036,77 +6031,76 @@
           radialDamage(pos, radius, damage);
           createHeartShock(pos, radius);
         } else if (special.effect === "rift") {
-          for (const enemy of game.enemies) {
-            if (enemy.pos.distanceTo(pos) < radius) {
-              enemy.stunned = Math.max(enemy.stunned, 1.4);
-              enemy.slowed = Math.max(enemy.slowed, 4);
-            }
-          }
-          radialDamage(pos, radius, damage);
-          createChainNet(pos, radius, 0x65d5ff);
+          // MATRIX SPLIT: a glowing grid; along every grid line a wall-laser erupts upward toward the
+          // camera, vaporizing anything on the lines (see spawnMatrixGrid).
+          spawnMatrixGrid(pos, radius, damage);
         } else if (special.effect === "titan") {
-          radialDamage(pos, radius, damage);
-          for (const enemy of game.enemies) enemy.stunned = Math.max(enemy.stunned, 0.6);
-          createRing(pos, 0xf8bf48, radius * 1.1);
-          createFireworks(pos, 34, 0xf8bf48);
+          // TITAN STEP: a line of giant footstomps MARCHES across the arena, each a crushing shockwave.
+          const yc = pos.y;
+          for (let n = 0; n < 7; n += 1) {
+            const x = -HALF_W + (n / 6) * HALF_W * 2;
+            const p = new THREE.Vector2(x, THREE.MathUtils.clamp(yc, game.stageCenter - HALF_H, game.stageCenter + HALF_H));
+            scheduleStomp(p, 0.12 + n * 0.16, 3.4, damage);
+          }
           screenPulse(0.28);
+          addTrauma(0.5);
         } else if (special.effect === "meteor") {
           radialDamage(pos, radius, damage);
           createFireworks(pos, 96, 0xff7138);
           createChainSweep(pos, player.facing, radius * 0.72, 0xf8bf48, true);
         } else if (special.effect === "fireworks") {
-          radialDamage(pos, radius, damage);
-          createFireworks(pos, 72);
-        } else if (special.effect === "champagne") {
-          radialDamage(pos, radius, damage);
-          createChampagne(pos, 44);
-        } else if (special.effect === "sweep") {
-          // SWEEP = remove POSITIONING. A directional cone that flings everything in front away —
-          // the "I'm cornered, reset spacing" panic button. Big knockback + camera kick + whoosh.
-          const f = player.facing.clone().normalize();
-          for (const enemy of game.enemies) {
-            const v = enemy.pos.clone().sub(pos);
-            const d = v.length();
-            if (d > radius * 1.25) continue;
-            const dir = d > 0.001 ? v.multiplyScalar(1 / d) : f.clone();
-            if (dir.dot(f) < 0.1) continue;
-            if (enemy.knockVel) enemy.knockVel.addScaledVector(dir, 22);
-            enemy.stunned = Math.max(enemy.stunned, 0.4);
-            damageEnemy(enemy, damage, dir);
+          // FIREWORKS: the kids run to the bottom of the map and launch a 6s multicolor barrage.
+          game.fireworksT = 6;
+          game.fireworksGap = 0;
+          createFireworks(pos, 24);
+        } else if (special.effect === "incinerate") {
+          // TOAST: a champagne burst that INCINERATES — anything it kills burns to ash; survivors ignite.
+          for (const e of [...game.enemies]) {
+            if (e.dead || e.intangible > 0 || e.pos.distanceTo(pos) > radius) continue;
+            damageEnemy(e, damage, e.pos.clone().sub(pos));
+            if (e.dead) createFlameBurst(e.pos, 1.7); // incinerate on kill
+            else e.burn = Math.max(e.burn || 0, 2.4); // survivors catch fire
           }
-          createChainSweep(pos, f, radius, 0xffd24c, true);
-          addTrauma(0.5);
-          noiseBurst({ dur: 0.22, gain: 0.18 });
-          blip({ type: "triangle", freq: 360, dur: 0.26, gain: 0.12, freqEnd: 110 });
+          createChampagne(pos, 40);
+          createFireworks(pos, 18, 0xff7138);
+        } else if (special.effect === "geyser") {
+          // GEYSER: a 6s water LASER beam (follows your aim) that blasts mobs off the map with a splash.
+          game.geyser = 6;
+          createWaterWaveZone(pos, 6, damage * 0.5);
+          blip({ type: "sine", freq: 220, dur: 0.4, gain: 0.12, freqEnd: 90 });
+        } else if (special.effect === "sweep") {
+          // RUSH: Santiago DASHES across the arena in his facing direction, trampling everything in a line.
+          rushDash(damage);
         } else if (special.effect === "mortar") {
           // 25 — CHAMPAGNE MORTARS: cork-shells rain on the crowd in a staggered volley.
           pickStrikeTargets(6, radius).forEach((t, n) => scheduleStrike(t, 0.15 + n * 0.13, 2.6, damage, 0xffd24c));
           createChampagne(pos, 26);
         } else if (special.effect === "strafe") {
-          // 50 — FIREWORK STRAFE: a comet streaks across Santiago's row, bursting along a line.
-          const y0 = player.pos.y;
+          // STRAFE: a comet runs along the row with the MOST mobs (not Santiago's row), bursting in a line.
+          const y0 = densestRowY();
           for (let n = 0; n < 9; n += 1) {
             const p = new THREE.Vector2(-HALF_W + (n / 8) * HALF_W * 2, y0 + rand(-1.2, 1.2));
             p.y = THREE.MathUtils.clamp(p.y, game.stageCenter - HALF_H, game.stageCenter + HALF_H);
             scheduleStrike(p, 0.12 + n * 0.07, 2.4, damage, 0xff7138);
           }
-          createFireworks(pos, 32, 0xff7138);
+          createFireworks(new THREE.Vector2(0, y0), 32, 0xff7138);
         } else if (special.effect === "fist") {
-          // 250 — COLOSSUS FIST: a giant hand sweeps the arena in a heavy slam line.
-          for (let n = 0; n < 5; n += 1) {
-            const p = new THREE.Vector2(-HALF_W + (n / 4) * HALF_W * 2, player.pos.y + rand(-2, 2));
-            p.y = THREE.MathUtils.clamp(p.y, game.stageCenter - HALF_H, game.stageCenter + HALF_H);
-            scheduleStrike(p, 0.1 + n * 0.16, 4.2, damage, 0xb8a070);
+          // FIST: phase 1 = a small circle drops on EVERY current mob (eliminate them); then after the
+          // next batch spawns (~2.4s), phase 2 drops the giant linear fist on them (see game.fistPhase2).
+          for (const e of [...game.enemies]) {
+            if (!e.dead) scheduleStrike(e.pos.clone(), 0.12 + Math.random() * 0.3, 1.9, damage, 0xb8a070);
           }
           createHeartShock(pos, radius);
-          addTrauma(0.7);
+          addTrauma(0.6);
+          game.fistPhase2 = 2.4;
+          game.fistDmg = damage;
         } else if (special.effect === "meteorstorm") {
-          // 500 — METEOR STORM: sustained rocks rain across the whole arena.
-          for (let n = 0; n < 16; n += 1) {
+          // METEORS: 2x the old duration with ACTUAL rocky meteors falling in (see spawnMeteor).
+          for (let n = 0; n < 28; n += 1) {
             const p = new THREE.Vector2(rand(-HALF_W, HALF_W), game.stageCenter + rand(-HALF_H, HALF_H));
-            scheduleStrike(p, 0.1 + n * 0.16, 3.0, damage, 0xff6a1a);
+            spawnMeteor(p, 0.15 + n * 0.17, 3.0, damage);
           }
-          createFireworks(pos, 60, 0xff6a1a);
+          createFireworks(pos, 40, 0xff6a1a);
         } else if (special.effect === "heartstorm") {
           // 750 — HEART-SHOCK STORM: arena-wide colossus pulses in escalating waves.
           game.spawnTimer += 2.5;
@@ -5140,15 +6134,19 @@
           // i-frames across the whole spawn-and-detonate window so the frenzy can't chip you or cut
           // the streak you just earned (reuses the field the 900 Frenzy special already uses).
           game.invincible = Math.max(game.invincible, 1.4 + game.frenzySpawns * 0.12);
+        } else if (special.effect === "wrath") {
+          // WRATH (the namesake): a towering WALL OF GOD-FIRE sweeps the whole arena, incinerating all.
+          spawnWrathWall(damage);
+          createFireworks(pos, 50, 0xffd24c);
+          addTrauma(0.9);
+          screenPulse(0.4, 0xb3131b);
         } else if (special.effect === "clear" || special.effect === "blast") {
+          // CATACLYSM (birthday): a massive point explosion.
           radialDamage(pos, radius, damage);
           createChainSweep(pos, player.facing, radius, special.birthday ? 0xf8bf48 : 0xb3131b, true);
-          if (special.effect === "clear") {
-            // 100 — SANTIAGO'S WRATH, amped: the namesake full-clear now erupts in fireworks too.
-            createFireworks(pos, 70, 0xffd24c);
-            createRing(pos, 0xb3131b, radius * 0.7);
-            addTrauma(0.8);
-          }
+          createFireworks(pos, 70, 0xffd24c);
+          createRing(pos, 0xb3131b, radius * 0.7);
+          addTrauma(0.8);
         }
       }
 
@@ -5173,6 +6171,7 @@
 
       function radialDamage(pos, radius, damage) {
         for (const enemy of [...game.enemies]) {
+          if (enemy.dead || enemy.intangible > 0) continue; // don't AoE a submerged (burrowed) boss
           const distance = enemy.pos.distanceTo(pos);
           if (distance <= radius) {
             const falloff = 1 - distance / radius;
@@ -5474,6 +6473,274 @@
         return mesh;
       }
 
+      // ===================== GLB MOB MODELS (visual swap; gameplay UNCHANGED) =====================
+      // Each enemy TYPE can have a static GLB that replaces the procedural mesh INSIDE enemy.group. All gameplay
+      // transforms (position, facing rotation.z, flash/spawn-pop scale) + the hitbox (enemy.radius) are group-level,
+      // so this is purely cosmetic. Loaded once per type via a guarded dynamic import (smoke-safe), then cloned per enemy.
+      const MOB_GLB = { basic: "ash_dead.glb", crawler: "crawler.glb", hugger: "hugger.glb", ranged: "ranged.glb", stalker: "stalker.glb", lurker: "lurker.glb", brute: "brute.glb", wisp: "wisp.glb", bursar: "bursar.glb", spitter: "spitter.glb", shield: "shield.glb", "boss:tyrant": "boss-tyrant.glb", "boss:warden": "boss-warden.glb", "boss:alpha": "boss-alpha.glb", "boss:conduit": "boss-conduit.glb", "boss:colossus": "boss-colossus.glb" };
+      const MOB_GLB_H = { basic: 1.5, crawler: 1.0, hugger: 1.25, ranged: 1.6, stalker: 1.3, lurker: 1.6, brute: 2.2, wisp: 1.5, bursar: 1.7, spitter: 1.2, shield: 1.6, "boss:tyrant": 3.5, "boss:warden": 3.5, "boss:alpha": 3.2, "boss:conduit": 3.5, "boss:colossus": 4.5 }; // visual height per type (group-local units)
+      const MOB_GLB_CFG = { rx: Math.PI / 2, ry: 0, rz: 0, yOff: 0 }; // up=+z (TOP-DOWN): feet on the play surface, body toward the camera; the game's rotation.z turns them in-plane to face heading
+      const MOB_FLIP = { spitter: true, brute: true, stalker: true, ranged: true, crawler: true, basic: true, shield: true, lurker: true, "boss:tyrant": true, "boss:warden": true, "boss:alpha": true, "boss:colossus": true }; // these face butt-to-player -> yaw 180
+      const MOB_GLB_SCALE = { stalker: [1.95, 1, 1], hugger: [1, 1, 1.15], "boss:tyrant": [1, 1, 1.2] }; // non-uniform pre-fit scale — thicken thin axes (stalker X; hugger +15% & tyrant +20% on Z = profile)
+      const MOB_GLB_ALT = { shield: "shield-broken.glb" }; // swapped in (state) when enemy.broken -> shield destroyed
+      const MOB_GLB_POP = { bursar: "bursar-popped.glb" };  // transient CORPSE spawned at detonation (head popped), fades as particles decay
+      // Per-type GLOW: drive emissive from the model's own baseColorTexture so the BRIGHT parts self-illuminate
+      // (lurker diamond, wisp bulb, bursar dome) while the dark body stays dark; tint pushes the hue + it blooms.
+      const MOB_GLOW = {
+        lurker: { color: 0x9a3cff, intensity: 2.0, hueC: 0.967, hueW: 0.06, satMin: 0.28, valMin: 0.35 }, // (point-light cast only; the diamond self-glow is now MOB_FX.lurker) more-purple tint
+        wisp:   { color: 0x3ad8ff, intensity: 1.9, hueC: 0.5,   hueW: 1.0,  satMin: 0.0,  valMin: 0.55 }, // pale bulb (value-keyed) -> cyan
+        bursar: { color: 0xff7a18, intensity: 2.0, hueC: 0.075, hueW: 0.08, satMin: 0.5,  valMin: 0.32 }, // orange dome (saturation-keyed -> excludes pale bone horns)
+        "boss:warden": { color: 0x4fd8ff, intensity: 1.8, hueC: 0.52, hueW: 0.10, satMin: 0.45, valMin: 0.42 }, // cyan rune-rods (sat+val keyed -> excludes the desaturated stone body)
+      };
+      // Hex Conduit two-band self-illumination (single mesh/texture -> all HSV-keyed from albedo): cyan head+ring,
+      // orange bulb with a white-HOT vein, + alpha falloff on the pale white-trending cape tips. Mirrors the viewer.
+      const CONDUIT_FX = { glowI: 1.0, orange: 0xff7a18, orangeI: 2.2, vein: 0xffe8c0, cyan: 0x4fe0ff, cyanI: 2.0, cyanValMin: 0.40, capeTransp: 0.70 };
+      const CONDUIT_COMMON =
+        "#include <common>\n" +
+        "uniform float uGlowI; uniform vec3 uOrange; uniform float uOrangeI; uniform vec3 uVein;\n" +
+        "uniform vec3 uCyan; uniform float uCyanI; uniform float uCyanValMin; uniform float uCapeTransp;\n" +
+        "vec3 _hsvC(vec3 c){vec4 K=vec4(0.,-1./3.,2./3.,-1.);vec4 p=mix(vec4(c.bg,K.wz),vec4(c.gb,K.xy),step(c.b,c.g));vec4 q=mix(vec4(p.xyw,c.r),vec4(c.r,p.yzx),step(p.x,c.r));float d=q.x-min(q.w,q.y);return vec3(abs(q.z+(q.w-q.y)/(6.*d+1e-10)),d/(q.x+1e-10),q.x);}";
+      const CONDUIT_EMISSIVE =
+        "#include <emissivemap_fragment>\n" +
+        "{ vec3 _hsv=_hsvC(diffuseColor.rgb); float H=_hsv.x, S=_hsv.y, V=_hsv.z;\n" +
+        "  float hdO=abs(H-0.07); hdO=min(hdO,1.0-hdO);\n" +
+        "  float maskO=smoothstep(0.10,0.045,hdO)*smoothstep(0.26,0.44,S);\n" +
+        "  float vein=smoothstep(0.60,0.85,V);\n" +
+        "  vec3 tintO=mix(uOrange,uVein,vein*0.45);\n" +
+        "  float intO=uOrangeI*(0.55+0.90*V)*(1.0+vein*0.25);\n" +
+        "  float hdC=abs(H-0.54); hdC=min(hdC,1.0-hdC);\n" +
+        "  float maskC=smoothstep(0.14,0.05,hdC)*smoothstep(uCyanValMin-0.12,uCyanValMin+0.10,V);\n" +
+        "  float intC=uCyanI*(0.50+0.90*V);\n" +
+        "  float blueGate=step(0.42,H)*step(H,0.74);\n" +
+        "  float pale=smoothstep(0.30,0.12,S)*smoothstep(0.45,0.72,V)*blueGate;\n" +
+        "  totalEmissiveRadiance += (tintO*intO*maskO + uCyan*intC*maskC*(1.0-0.4*pale))*uGlowI;\n" +
+        "  diffuseColor.a *= 1.0 - uCapeTransp*pale; }";
+      function applyConduitFX(scn) {
+        const mats = []; scn.traverse((o) => { if (o.isMesh) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => mats.push(m)); });
+        for (const m of mats) {
+          if (m.emissive && m.emissive.setHex) m.emissive.setHex(0x000000);
+          m.toneMapped = false; m.transparent = true; m.depthWrite = true; m.userData.glowBase = CONDUIT_FX.glowI;
+          m.onBeforeCompile = (sh) => {
+            sh.uniforms.uGlowI = { value: CONDUIT_FX.glowI };
+            sh.uniforms.uOrange = { value: new THREE.Color(CONDUIT_FX.orange) }; sh.uniforms.uOrangeI = { value: CONDUIT_FX.orangeI };
+            sh.uniforms.uVein = { value: new THREE.Color(CONDUIT_FX.vein) };
+            sh.uniforms.uCyan = { value: new THREE.Color(CONDUIT_FX.cyan) }; sh.uniforms.uCyanI = { value: CONDUIT_FX.cyanI };
+            sh.uniforms.uCyanValMin = { value: CONDUIT_FX.cyanValMin }; sh.uniforms.uCapeTransp = { value: CONDUIT_FX.capeTransp };
+            sh.fragmentShader = sh.fragmentShader.replace("#include <common>", CONDUIT_COMMON).replace("#include <emissivemap_fragment>", CONDUIT_EMISSIVE);
+            m.userData.glowUniforms = sh.uniforms;
+          };
+          m.needsUpdate = true;
+        }
+        return mats;
+      }
+      // Generic albedo FX (HSV-keyed): one emissive band + optional darken band + optional fade-to-transparent band.
+      // Covers the lurker (pink gem -> purple glow; purple robe darkened; light lavender fades out) and spitter (blue parts darkened).
+      const MOB_FX = {
+        lurker:  { emi: { c: 0x9a3cff, i: 2.4, hc: 0.967, hw: 0.06, smin: 0.28, vmin: 0.35 }, dark: { a: 0.20, hc: 0.80, hw: 0.10, smin: 0.20, vmax: 0.45 }, fade: { a: 0.60, hc: 0.80, hw: 0.16, vmin: 0.50, smax: 0.40 } },
+        spitter: { dark: { a: 0.20, hc: 0.55, hw: 0.13, smin: 0.18, vmax: 1.0 } }, // icy-blue spikes darkened 20% (white body untouched by the sat gate)
+      };
+      const MOBFX_COMMON =
+        "#include <common>\n" +
+        "uniform float uGlowI; uniform vec3 uEmi; uniform float uEmiI,uEmiHc,uEmiHw,uEmiSmin,uEmiVmin;\n" +
+        "uniform float uDark,uDarkHc,uDarkHw,uDarkSmin,uDarkVmax;\n" +
+        "uniform float uFade,uFadeHc,uFadeHw,uFadeVmin,uFadeSmax;\n" +
+        "vec3 _hsvF(vec3 c){vec4 K=vec4(0.,-1./3.,2./3.,-1.);vec4 p=mix(vec4(c.bg,K.wz),vec4(c.gb,K.xy),step(c.b,c.g));vec4 q=mix(vec4(p.xyw,c.r),vec4(c.r,p.yzx),step(p.x,c.r));float d=q.x-min(q.w,q.y);return vec3(abs(q.z+(q.w-q.y)/(6.*d+1e-10)),d/(q.x+1e-10),q.x);}";
+      const MOBFX_EMISSIVE =
+        "#include <emissivemap_fragment>\n" +
+        "{ vec3 _h=_hsvF(diffuseColor.rgb); float H=_h.x, S=_h.y, V=_h.z;\n" +
+        "  float ehd=abs(H-uEmiHc); ehd=min(ehd,1.0-ehd);\n" +
+        "  float em=step(ehd,uEmiHw)*step(uEmiSmin,S)*step(uEmiVmin,V);\n" +
+        "  totalEmissiveRadiance += uEmi*uEmiI*em*uGlowI;\n" +
+        "  float dhd=abs(H-uDarkHc); dhd=min(dhd,1.0-dhd);\n" +
+        "  float dm=step(dhd,uDarkHw)*step(uDarkSmin,S)*step(V,uDarkVmax);\n" +
+        "  diffuseColor.rgb *= 1.0 - uDark*dm;\n" +
+        "  float fhd=abs(H-uFadeHc); fhd=min(fhd,1.0-fhd);\n" +
+        "  float fm=step(fhd,uFadeHw)*step(uFadeVmin,V)*step(S,uFadeSmax);\n" +
+        "  diffuseColor.a *= 1.0 - uFade*fm; }";
+      function applyMobFX(scn, cfg) {
+        const emi = cfg.emi || {}, dk = cfg.dark || {}, fd = cfg.fade || {};
+        const mats = []; scn.traverse((o) => { if (o.isMesh) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => mats.push(m)); });
+        for (const m of mats) {
+          if (m.emissive && m.emissive.setHex) m.emissive.setHex(0x000000);
+          if (emi.i) m.toneMapped = false;
+          if (fd.a) { m.transparent = true; m.depthWrite = true; }
+          m.userData.glowBase = 1.0;
+          m.onBeforeCompile = (sh) => {
+            sh.uniforms.uGlowI = { value: 1.0 };
+            sh.uniforms.uEmi = { value: new THREE.Color(emi.c || 0xffffff) }; sh.uniforms.uEmiI = { value: emi.i || 0 };
+            sh.uniforms.uEmiHc = { value: emi.hc || 0 }; sh.uniforms.uEmiHw = { value: emi.hw || 0 }; sh.uniforms.uEmiSmin = { value: emi.smin || 0 }; sh.uniforms.uEmiVmin = { value: emi.vmin || 0 };
+            sh.uniforms.uDark = { value: dk.a || 0 }; sh.uniforms.uDarkHc = { value: dk.hc || 0 }; sh.uniforms.uDarkHw = { value: dk.hw || 0 }; sh.uniforms.uDarkSmin = { value: dk.smin || 0 }; sh.uniforms.uDarkVmax = { value: dk.vmax || 1 };
+            sh.uniforms.uFade = { value: fd.a || 0 }; sh.uniforms.uFadeHc = { value: fd.hc || 0 }; sh.uniforms.uFadeHw = { value: fd.hw || 0 }; sh.uniforms.uFadeVmin = { value: fd.vmin || 0 }; sh.uniforms.uFadeSmax = { value: fd.smax || 1 };
+            sh.fragmentShader = sh.fragmentShader.replace("#include <common>", MOBFX_COMMON).replace("#include <emissivemap_fragment>", MOBFX_EMISSIVE);
+            m.userData.glowUniforms = sh.uniforms;
+          };
+          m.needsUpdate = true;
+        }
+        return mats;
+      }
+      // Ranged wraith: a thin emissive ARROW (vertical, pointing DOWN) in front of the body. Added model-local; tunable.
+      const RANGED_FX = { glow: 0x8fd0ff, intensity: 2.2, arrow: { len: 0.80, rad: 0.007, pos: [0, 0.0, 0.22], rot: [0, 0, 0] } };
+      function addRangedAccents(scn) {
+        const C = RANGED_FX, L = C.arrow.len, R = C.arrow.rad;
+        const m = new THREE.MeshStandardMaterial({ color: 0x000000, emissive: new THREE.Color(C.glow), emissiveIntensity: C.intensity, roughness: 1, metalness: 0, toneMapped: false });
+        const shaft = new THREE.Mesh(new THREE.CylinderGeometry(R, R, L * 0.8, 6), m); // axis +Y
+        const tip = new THREE.Mesh(new THREE.ConeGeometry(R * 2.6, L * 0.20, 8), m); tip.rotation.x = Math.PI; tip.position.y = -L * 0.5; // apex points DOWN
+        const arrow = new THREE.Group(); arrow.add(shaft); arrow.add(tip);
+        arrow.position.set(C.arrow.pos[0], C.arrow.pos[1], C.arrow.pos[2]); arrow.rotation.set(C.arrow.rot[0], C.arrow.rot[1], C.arrow.rot[2]); scn.add(arrow);
+      }
+      // Pack Alpha: a small red emissive EYE on the face (face is at +Z). Added model-local; tunable.
+      const ALPHA_FX = { eye: 0xff2412, intensity: 2.6, r: 0.030, pos: [0, 0.06, 0.40] };
+      function addAlphaEye(scn) {
+        const C = ALPHA_FX;
+        const m = new THREE.MeshStandardMaterial({ color: 0x000000, emissive: new THREE.Color(C.eye), emissiveIntensity: C.intensity, roughness: 1, metalness: 0, toneMapped: false });
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(C.r, 14, 12), m);
+        eye.position.set(C.pos[0], C.pos[1], C.pos[2]); scn.add(eye);
+      }
+      const mobModelCache = {}; const mobModelWaiters = {}; let _mobLoader = null;
+      async function ensureMobLoader() {
+        if (_mobLoader) return _mobLoader;
+        try { const m = await import("three/addons/loaders/GLTFLoader.js"); _mobLoader = new m.GLTFLoader(); } catch (e) { _mobLoader = "failed"; }
+        return _mobLoader;
+      }
+      function prepMobTemplate(scn, type) {
+        if (MOB_GLB_SCALE[type]) { const s3 = MOB_GLB_SCALE[type]; scn.scale.set(scn.scale.x * s3[0], scn.scale.y * s3[1], scn.scale.z * s3[2]); } // thicken thin axes before fit/center
+        const box = new THREE.Box3().setFromObject(scn), size = new THREE.Vector3(), center = new THREE.Vector3();
+        box.getSize(size); box.getCenter(center);
+        const sc = (MOB_GLB_H[type] || 1.4) / (size.y || 1);
+        scn.position.set(-center.x, -center.y, -center.z); // center at origin
+        const inner = new THREE.Group(); inner.add(scn); inner.scale.setScalar(sc);
+        if (MOB_FLIP[type]) inner.rotation.y = Math.PI; // flip facing 180 (yaw around the model's vertical, before the tip)
+        const wrap = new THREE.Group(); wrap.add(inner);
+        wrap.rotation.set(MOB_GLB_CFG.rx, MOB_GLB_CFG.ry, MOB_GLB_CFG.rz);
+        wrap.userData.mobModel = true;
+        wrap.updateMatrixWorld(true); // ground: center x/y, FEET on the surface (model lies toward camera -> top-down read)
+        const _gb = new THREE.Box3().setFromObject(wrap), _gc = new THREE.Vector3(); _gb.getCenter(_gc);
+        wrap.position.set(-_gc.x, -_gc.y, -_gb.min.z + 0.05 + MOB_GLB_CFG.yOff);
+        scn.traverse((o) => { if (o.isMesh && o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach((mm) => { if (mm.metalness !== undefined) mm.metalness = 0; if (mm.roughness !== undefined) mm.roughness = 0.85; mm.needsUpdate = true; }); }); // GLBs default to metalness=1 (metals -> near-black w/o an env map); force DIFFUSE so brightness is consistent
+        if (type === "boss:conduit") { wrap.userData.glowMats = applyConduitFX(scn); return wrap; } // bespoke two-band FX
+        if (MOB_FX[type]) { wrap.userData.glowMats = applyMobFX(scn, MOB_FX[type]); return wrap; } // generic HSV albedo FX (lurker, spitter)
+        if (type === "ranged") addRangedAccents(scn); // procedural emissive arrow
+        if (type === "boss:alpha") addAlphaEye(scn); // procedural red emissive eye
+        const glow = MOB_GLOW[type];
+        if (glow) {
+          const mats = []; scn.traverse((o) => { if (o.isMesh) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => mats.push(m)); });
+          for (const m of mats) {
+            if (m.emissive && m.emissive.setHex) m.emissive.setHex(0x000000);
+            m.toneMapped = false; m.userData.glowBase = glow.intensity;
+            m.onBeforeCompile = (sh) => {
+              sh.uniforms.uGlowTint = { value: new THREE.Color(glow.color) }; sh.uniforms.uGlowI = { value: glow.intensity };
+              sh.uniforms.uHueC = { value: glow.hueC }; sh.uniforms.uHueW = { value: glow.hueW }; sh.uniforms.uSatMin = { value: glow.satMin }; sh.uniforms.uValMin = { value: glow.valMin };
+              sh.fragmentShader = sh.fragmentShader
+                .replace("#include <common>", "#include <common>\nuniform vec3 uGlowTint; uniform float uGlowI; uniform float uHueC; uniform float uHueW; uniform float uSatMin; uniform float uValMin;\nvec3 _rgb2hsv(vec3 c){vec4 K=vec4(0.,-1./3.,2./3.,-1.);vec4 p=mix(vec4(c.bg,K.wz),vec4(c.gb,K.xy),step(c.b,c.g));vec4 q=mix(vec4(p.xyw,c.r),vec4(c.r,p.yzx),step(p.x,c.r));float d=q.x-min(q.w,q.y);return vec3(abs(q.z+(q.w-q.y)/(6.*d+1e-10)),d/(q.x+1e-10),q.x);}")
+                .replace("#include <emissivemap_fragment>", "vec3 _h=_rgb2hsv(diffuseColor.rgb);float _hd=abs(_h.x-uHueC);_hd=min(_hd,1.-_hd);float _m=step(_hd,uHueW)*step(uSatMin,_h.y)*step(uValMin,_h.z);totalEmissiveRadiance=uGlowTint*uGlowI*_m;");
+              m.userData.glowUniforms = sh.uniforms; // for the pulse
+            };
+            m.needsUpdate = true;
+          }
+          wrap.userData.glowMats = mats;
+        }
+        return wrap;
+      }
+      function applyMobModel(enemy, tpl) {
+        if (!enemy.group) return;
+        for (const c of enemy.group.children) if (!c.userData || !c.userData.mobModel) c.visible = false; // hide procedural meshes
+        enemy.group.add(tpl.clone(true)); // shared geometry/material -> cheap
+      }
+      // Keep GLB mobs UPRIGHT: the game spins enemy.group around Z (camera axis) to face movement, which would
+      // TIP a 3D model. Cancel that on the model child each frame so it stays standing, facing the camera/player.
+      function updateMobModels(dt) {
+        dt = dt || 0.016;
+        // STATE swap: shield -> show the no-shield model when broken (toggle preloaded base vs alt)
+        for (let i = 0; i < game.enemies.length; i += 1) {
+          const e = game.enemies[i]; if (e.type !== "shield" || !e.group) continue;
+          for (const c of e.group.children) { if (!c.userData) continue; if (c.userData.isAlt) c.visible = !!e.broken; else if (c.userData.mobModel) c.visible = !e.broken; }
+        }
+        // procedural IDLE (static meshes have no rig -> fake life): a subtle breathe + bob on the model child, per-enemy phase
+        const _ts = performance.now() * 0.001;
+        for (let i = 0; i < game.enemies.length; i += 1) {
+          const e = game.enemies[i]; if (!e.group) continue;
+          for (const c of e.group.children) {
+            if (!c.userData || !c.userData.mobModel || !c.visible) continue;
+            if (c.userData.animB === undefined) c.userData.animB = { s: c.scale.x, z: c.position.z };
+            const w = Math.sin(_ts * 2.0 + (e.id || 0) * 1.3);
+            c.scale.setScalar(c.userData.animB.s * (1 + w * 0.03)); // ±3% breathe
+            c.position.z = c.userData.animB.z + w * 0.05; // gentle bob off the surface
+          }
+        }
+        // transient corpses (popped bursar) fade out while the explosion particles decay, then dispose
+        for (let i = mobCorpses.length - 1; i >= 0; i -= 1) {
+          const cp = mobCorpses[i]; cp.life -= dt; const t = Math.max(0, cp.life / cp.max);
+          for (const m of cp.mats) m.opacity = t;
+          if (cp.life <= 0) { if (groups.actors) groups.actors.remove(cp.holder); if (typeof disposeObject === "function") disposeObject(cp.holder); mobCorpses.splice(i, 1); }
+        }
+        const gt = performance.now() * 0.0028; const pulse = 0.85 + 0.15 * Math.sin(gt); // slow ±15% glow breathing
+        for (const k in mobModelCache) { const tpl = mobModelCache[k]; if (!tpl || !tpl.userData || !tpl.userData.glowMats) continue; for (const m of tpl.userData.glowMats) { const u = m.userData.glowUniforms; if (u && u.uGlowI) u.uGlowI.value = (m.userData.glowBase || 1) * pulse; } }
+        updateGlowLights(pulse);
+      }
+      let _glowLights = null; // capped pool of colored point lights for the glow CAST onto nearby surfaces/body
+      function updateGlowLights(pulse) {
+        if (typeof THREE.PointLight !== "function" || typeof scene === "undefined" || !scene) return;
+        if (!_glowLights) {
+          try { _glowLights = []; for (let i = 0; i < 6; i += 1) { const L = new THREE.PointLight(0xffffff, 0, 4.0, 2); L.visible = false; scene.add(L); _glowLights.push(L); } } catch (e) { _glowLights = "failed"; }
+        }
+        if (_glowLights === "failed") return;
+        const lit = [];
+        for (let i = 0; i < game.enemies.length; i += 1) { const e = game.enemies[i]; if (!e.dead && MOB_GLOW[e.type] && e.pos) lit.push(e); }
+        lit.sort((a, b) => a.pos.distanceToSquared(player.pos) - b.pos.distanceToSquared(player.pos)); // light only the nearest few -> swarm-safe
+        for (let i = 0; i < _glowLights.length; i += 1) {
+          const L = _glowLights[i], e = lit[i];
+          if (!e) { L.visible = false; L.intensity = 0; continue; }
+          const g = MOB_GLOW[e.type];
+          L.visible = true; if (L.color && L.color.setHex) L.color.setHex(g.color);
+          L.intensity = 2.6 * (pulse || 1); L.distance = 4.2; L.decay = 2;
+          L.position.set(e.pos.x, e.pos.y + 0.45, (typeof surfaceZ === "function" ? surfaceZ(e.pos.x, e.pos.y) : 0.4) + 0.7);
+        }
+      }
+      function attachMobModel(enemy, type) {
+        const key = type === "boss" ? "boss:" + (enemy.kind || "tyrant") : type; // bosses are one type, many KINDS
+        if (MOB_GLB_ALT[key]) loadExtra(MOB_GLB_ALT[key], key, (tpl) => { if (!enemy.dead && enemy.group) { const inst = tpl.clone(true); inst.visible = false; inst.userData.mobModel = true; inst.userData.isAlt = true; enemy.group.add(inst); } });
+        if (!MOB_GLB[key]) return; // no model -> keep procedural
+        const cached = mobModelCache[key];
+        if (cached && cached !== "loading" && cached !== "failed") { applyMobModel(enemy, cached); return; }
+        (mobModelWaiters[key] = mobModelWaiters[key] || []).push(enemy);
+        if (cached) return; // already loading/failed
+        mobModelCache[key] = "loading";
+        ensureMobLoader().then((loader) => {
+          if (!loader || loader === "failed") { mobModelCache[key] = "failed"; return; }
+          loader.load("./mobs/" + MOB_GLB[key], (gltf) => {
+            const tpl = prepMobTemplate(gltf.scene, key); mobModelCache[key] = tpl;
+            for (const e of (mobModelWaiters[key] || [])) applyMobModel(e, tpl);
+            mobModelWaiters[key] = [];
+          }, undefined, () => { mobModelCache[key] = "failed"; });
+        }).catch(() => { mobModelCache[key] = "failed"; });
+      }
+      // generic file-keyed loader (for alt/popped variants); shares the orientation/scale/flip of its TYPE
+      const extraCache = {}, extraWaiters = {};
+      function loadExtra(file, type, onReady) {
+        const c = extraCache[file];
+        if (c && c !== "loading" && c !== "failed") { onReady(c); return; }
+        (extraWaiters[file] = extraWaiters[file] || []).push(onReady);
+        if (c) return;
+        extraCache[file] = "loading";
+        ensureMobLoader().then((loader) => {
+          if (!loader || loader === "failed") { extraCache[file] = "failed"; return; }
+          loader.load("./mobs/" + file, (gltf) => { const tpl = prepMobTemplate(gltf.scene, type); extraCache[file] = tpl; for (const cb of (extraWaiters[file] || [])) cb(tpl); extraWaiters[file] = []; }, undefined, () => { extraCache[file] = "failed"; });
+        }).catch(() => { extraCache[file] = "failed"; });
+      }
+      const mobCorpses = []; // short-lived models left behind by a state change (e.g. popped bursar)
+      function spawnMobCorpse(type, pos, rotZ) {
+        const file = MOB_GLB_POP[type]; if (!file || !pos) return;
+        loadExtra(file, type, (tpl) => {
+          const holder = new THREE.Group();
+          holder.position.set(pos.x, pos.y, (typeof surfaceZ === "function" ? surfaceZ(pos.x, pos.y) : 0.4) + 0.03);
+          holder.rotation.z = rotZ || 0;
+          const inst = tpl.clone(true), mats = [];
+          inst.traverse((o) => { if (o.isMesh && o.material) { o.material = o.material.clone(); o.material.transparent = true; mats.push(o.material); } }); // clone mats -> independent fade
+          holder.add(inst); if (groups.actors) groups.actors.add(holder);
+          mobCorpses.push({ holder, mats, life: 0.85, max: 0.85 });
+        });
+      }
+
       function createEnemy(type, wave) {
         const group = new THREE.Group();
         // Steeper HP ramp (was 0.07): log-8 showed every enemy died in ~1s — too fast to express its
@@ -5501,8 +6768,8 @@
           contactDamage = 7;
           name = "Grim Crawler";
         } else if (type === "ranged") {
-          hp *= 0.85;
-          speed *= 0.75;
+          hp *= 1.45; // must survive to actually get a shot off (was 0.85 -> died before firing)
+          speed *= 0.72; // holds the back line a touch better
           contactDamage = 4.8;
           name = "Seidr Revenant";
         } else if (type === "stalker") {
@@ -5512,13 +6779,13 @@
           contactDamage = 9.2;
           name = "Shadow Stalker";
         } else if (type === "wisp") {
-          hp *= 0.62;
+          hp *= 0.78; // stays FRAGILE — it survives via blinking away, not HP
           speed *= 1.2;
           radius = 0.34;
           contactDamage = 3.8;
           name = "Rune Wisp";
         } else if (type === "spitter") {
-          hp *= 1.18;
+          hp *= 1.55; // survive to fire (was 1.18)
           speed *= 0.68;
           radius = 0.5;
           contactDamage = 5.2;
@@ -5559,12 +6826,13 @@
           contactDamage = 6;
           name = "Stonebreaker";
         } else if (type === "boss") {
-          // Bosses every 3 waves; HP scales by wave (w3≈34 → w15≈82; King ×1.5≈123) so they're a real
-          // wall, and their telegraphed slams/volleys now hurt (log-9: bosses lived long but did ~0 dmg).
-          hp = 22 + wave * 4.0;
+          // Section-duel bosses. log (v5.4): w3 Grave Tyrant @260hp dragged 54s → death, and its 22/touch
+          // melee bite cornered the player. Cut HP (steeper curve so EARLY bosses ease up most: w3≈144 →
+          // w15≈480, King ×1.3) and the contact bite. Tune further from logs.
+          hp = 50 + wave * 25; // log v5.5: Tyrant @144 was a 51s slog; trim so fights land ~35-45s
           speed = 0.58 + wave * 0.006;
-          radius = 1.22;
-          contactDamage = 24;
+          radius = 1.34;
+          contactDamage = 13;
           name = bossName(wave);
         }
 
@@ -5572,11 +6840,16 @@
         // boss switch in updateEnemies; index matches bossName (every-3 cadence): w3..w15 -> 0..4.
         const bossKind =
           type === "boss"
-            ? ["father", "troll", "matron", "serpent", "king"][
+            ? ["tyrant", "warden", "alpha", "conduit", "colossus"][
                 Math.min(4, Math.max(0, Math.floor(wave / 3) - 1))
               ]
             : null;
-        if (bossKind === "king") hp *= 1.5; // the Shield Wall King must survive its shield-break into Phase 2
+        if (bossKind === "colossus") hp *= 1.3; // the finale Crown Colossus is extra tanky for its multi-phase war
+        // log v5.7: ranged/caster bosses (Warden w6 died in 12s @0dmg, Conduit too) are the MOST cheesable —
+        // they feed deflectable shots and barely contact you, so a banked special + reflects deletes them.
+        // Give them a bigger HP pool so they survive long enough to actually threaten.
+        else if (bossKind === "warden") hp *= 1.7;
+        else if (bossKind === "conduit") hp *= 2.0; // 2nd-to-last: a proper tank now that its threats are real + non-deflectable
 
         contactDamage *= 1 + wave * 0.12; // steeper so getting caught actually bites (log-9: ~0 dmg taken)
 
@@ -5697,8 +6970,8 @@
           }
         }
 
-        if (type === "shield" || bossKind === "king") {
-          const big = bossKind === "king";
+        if (type === "shield" || bossKind === "colossus") {
+          const big = bossKind === "colossus";
           shieldMesh = new THREE.Mesh(
             new THREE.BoxGeometry(big ? 2.1 : 0.86, big ? 2.5 : 1.0, 0.12),
             mats.metal,
@@ -5824,7 +7097,10 @@
           }
         }
 
-        return {
+        // (No foot-halo — weakness reads instead from the spell LIGHTING UP the mobs it's strong against;
+        // see markWeak, which lights affected mobs for ~1s.)
+
+        const _enemy = {
           group,
           type,
           name,
@@ -5835,8 +7111,14 @@
           contactDamage,
           pos: new THREE.Vector2(),
           knockVel: new THREE.Vector2(),
-          cooldown: 1.2 + Math.random() * 1.5,
+          // Shooters get a FAST first shot so they actually fire before dying (log-9: revenant never shot).
+          cooldown:
+            type === "ranged" || type === "wisp" || type === "spitter"
+              ? 0.35 + Math.random() * 0.5
+              : 1.2 + Math.random() * 1.5,
           windup: 0, // shooter/boss telegraph timer
+          touchCd: 0, // per-enemy contact-bite cooldown
+          deflectCd: 0, // per-boss deflect-intake rate limit (so a whole volley can't be reflected at once)
           fuse: 0, // bursar fuse timer
           fuseSwell: 0,
           ringTick: 0,
@@ -5870,12 +7152,14 @@
           rooted: 0,
           burn: 0,
           flash: 0,
-          shielded: type === "shield" || bossKind === "king",
+          shielded: type === "shield" || bossKind === "colossus",
           broken: false,
           shieldMesh,
           clinging: false,
           dead: false,
         };
+        attachMobModel(_enemy, type);
+        return _enemy;
       }
 
       // ---- Carved stone (Greek-key meander) + glowing sigil textures (from sotc-remake-modeling agent) ----
@@ -6463,6 +7747,10 @@
         const dummy = new THREE.Object3D();
         const cj = new THREE.Color();
         const canTint = typeof cj.setRGB === "function"; // headless Color stub has no setRGB -> skip
+        // Seeded smooth 2D value-noise (Math-only -> headless-safe): drives the fur DENSITY field + the combed FLOW field.
+        const fHash = (xi, yi) => { let h = Math.imul(xi | 0, 374761393) + Math.imul(yi | 0, 668265263); h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
+        const fS = (k) => k * k * (3 - 2 * k);
+        const vnoise = (x, y) => { const xi = Math.floor(x), yi = Math.floor(y), u = fS(x - xi), w = fS(y - yi); const a = fHash(xi, yi), b = fHash(xi + 1, yi), c = fHash(xi, yi + 1), d = fHash(xi + 1, yi + 1); const ab = a + (b - a) * u, cd = c + (d - c) * u; return ab + (cd - ab) * w; };
         for (let t = 0; t < 3; t += 1) {
           const mat = new THREE.MeshStandardMaterial({
             color: tones[t],
@@ -6480,13 +7768,17 @@
             // PATCHY pelt: fur grows in CLUMPS with bare gaps between. Far DENSER on the wide great-back
             // (segR scaled) so the beast reads as shrouded in a heavy mane; sparser on thin limbs.
             const segR = bodyRadius(y);
-            const patches = Math.min(30, Math.round((9 * (segR / 22) + 4) * reg));
+            const patches = Math.min(36, Math.round((9 * (segR / 22) + 4) * reg * 1.3)); // more candidates; the density field thins them organically
             let ci = 0;
             for (let pI = 0; pI < patches; pI += 1) {
               const pcy = y + rand(-HALF_H - 0.5, HALF_H + 0.5);
               const span = bodyRadius(pcy) * 0.86;
               const pcx = rand(-span, span);
-              const cards = 7 + Math.floor(rand(0, 6)); // 7-12 tufts per clump (was 5-9) -> thicker
+              // DENSITY NOISE FIELD: fur CLUMPS where the low-freq field is high, with bare gaps where it is low,
+              // instead of uniform-random scatter. Threshold eased by region so the great-back stays a full mane.
+              const dens = vnoise(pcx * 0.06 + 13.7, pcy * 0.05);
+              if (dens < 0.5 - reg * 0.34) continue; // reject patches in the field's low pockets -> organic patchiness
+              const cards = 5 + Math.floor(dens * dens * 9); // thicker clumps where the field is strongest
               for (let c = 0; c < cards; c += 1) {
                 if (ci++ % 3 !== t || n >= cap) continue;
                 const fx = THREE.MathUtils.clamp(pcx + rand(-1.7, 1.7), -span, span);
@@ -6496,10 +7788,12 @@
                 const h = big ? rand(4.6, 8.0) : rand(2.6, 5.0); // LONGER cards (was 2.2-3.6 / 1.2-2.8)
                 const zc = surfaceZ(fx, cardY) + 0.16 + rand(0, 0.5);
                 const lean = Math.atan2(fx, bodyRadius(cardY)) * 0.85;
+                // FLOW FIELD: a slow-varying COMBED direction so neighbouring tufts lean the SAME way (wind-combed,
+                // organic) instead of random scatter; low-freq noise -> coherent sweep across the body. Tiny jitter only.
+                const flow = (vnoise(fx * 0.035 + 71.3, cardY * 0.03) - 0.5) * 1.5;
+                const droop = -0.4 + (vnoise(fx * 0.04, cardY * 0.04 + 5.1) - 0.5) * 0.5;
                 dummy.position.set(fx, cardY, zc);
-                // FLOW: tips droop back/down toward the body (matted shaggy pelt) and sweep outward from
-                // the spine, with seeded jitter so the mane reads as flowing hair, not scattered cards.
-                dummy.rotation.set(-0.4 + rand(-0.18, 0.12), lean, -fx * 0.05 + rand(-0.34, 0.34));
+                dummy.rotation.set(droop, lean, lean * 0.4 + flow + rand(-0.1, 0.1));
                 dummy.scale.set(w, h, 1);
                 dummy.updateMatrix();
                 inst.setMatrixAt(n, dummy.matrix);
@@ -7796,6 +9090,43 @@
         }
       }
 
+      // PLAYER MODEL SWAP (progressive enhancement): drop santiago.glb in as the visible Santiago. Static mesh
+      // (no rig) -> the procedural limb/axe rig is hidden but still animates harmlessly; group-level facing/lunge/
+      // idle + the separate swing-arc VFX still read the attack. Orientation mirrors the mobs (Y-up -> game Z-up).
+      const PLAYER_GLB = { url: "./santiago.glb", targetH: 2.325, rx: Math.PI / 2, yaw: Math.PI, yOff: 0, zOff: 0.02 }; // tunable: targetH=height (1.5x), yaw=PI face-fix (was backwards), z/yOff=ground nudge
+      function applyPlayerGLB(scn) {
+        const C = PLAYER_GLB;
+        // GLBs default to metalness=1 (near-black without an env map) -> force diffuse, like the mobs.
+        scn.traverse((o) => { if (o.isMesh && o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => { if (m.metalness !== undefined) m.metalness = 0; if (m.roughness !== undefined) m.roughness = 0.85; m.needsUpdate = true; }); });
+        const box = new THREE.Box3().setFromObject(scn), size = new THREE.Vector3(), center = new THREE.Vector3();
+        box.getSize(size); box.getCenter(center);
+        scn.position.set(-center.x, -center.y, -center.z); // center at origin
+        const inner = new THREE.Group(); inner.add(scn); inner.scale.setScalar(C.targetH / (size.y || 1)); // fit native height -> targetH
+        inner.rotation.y = C.yaw; // face-fix (set to Math.PI if it faces away)
+        const wrap = new THREE.Group(); wrap.add(inner);
+        wrap.rotation.x = C.rx; // GLB Y-up -> game Z-up (stands toward camera; the group's rotation.z yaws it to facing)
+        wrap.updateMatrixWorld(true);
+        const gb = new THREE.Box3().setFromObject(wrap), gc = new THREE.Vector3(); gb.getCenter(gc);
+        wrap.position.set(-gc.x, -gc.y + C.yOff, -gb.min.z + C.zOff); // center x/y, feet on the surface (z)
+        wrap.userData.playerModel = true;
+        for (const c of player.group.children) c.visible = false; // hide the procedural Santiago rig
+        player.group.add(wrap);
+      }
+      async function initPlayerGLB() {
+        try {
+          const { GLTFLoader } = await import("three/addons/loaders/GLTFLoader.js");
+          const loader = new GLTFLoader();
+          loader.load(
+            PLAYER_GLB.url,
+            (gltf) => { try { applyPlayerGLB(gltf.scene); } catch (e) { console.warn("[SantiagoWrath] santiago.glb apply failed; keeping procedural", e); } },
+            undefined,
+            (err) => { console.warn("[SantiagoWrath] santiago.glb load failed; keeping procedural", err); },
+          );
+        } catch (e) {
+          console.warn("[SantiagoWrath] GLTFLoader unavailable; keeping procedural Santiago", e);
+        }
+      }
+
       function createArenaEdges(y, wave) {
         const color = wave >= 100 ? 0x1a2238 : wave > 40 ? 0x3b3f38 : 0x2e312d;
         const mat = new THREE.MeshStandardMaterial({ color, roughness: 1, flatShading: true });
@@ -8421,14 +9752,16 @@
         const moving = input.move.lengthSq() > 0.01 && game.shake <= 0;
         const attackProgress = THREE.MathUtils.clamp(1 - (game.attackAnimUntil - now) / 0.32, 0, 1);
         const attacking = now < game.attackAnimUntil;
-        const attackSwing = attacking ? Math.sin(attackProgress * Math.PI) : 0;
+        const attackSwing = attacking ? attackSwingCurve(attackProgress) : 0; // anticipation coil -> fast SNAP -> overshoot settle (VISUAL only; damage resolved before this anim window)
+        const hsNorm = Math.min(1, (game.hitStop || 0) / 0.16);
+        player.group.scale.setScalar(1 - hsNorm * 0.06); // brief impact-CRUNCH on any landed hit (reads game.hitStop; writes only the visual group scale, baseline 1)
         for (const [index, arm] of rig.arms.entries()) {
           const side = index === 0 ? -1 : 1;
           const climb = moving ? Math.sin(player.pos.y * 3.2 + index * Math.PI) : 0;
           arm.root.rotation.z = side * (0.78 + attackSwing * 0.72) + climb * 0.28;
           arm.elbow.rotation.z = side * (-0.34 - attackSwing * 0.54) - climb * 0.18;
           arm.root.position.y = 0.3 + (moving ? Math.max(0, climb) * 0.16 : 0);
-          arm.axe.rotation.z = Math.PI / 2 + side * (0.12 + attackSwing * 0.32);
+          arm.axe.rotation.z = Math.PI / 2 + side * (0.12 + Math.max(0, attackSwing) * 0.46); // axe whips on the snap (max() so the coil-back doesn't reverse the blade)
         }
         for (const [index, leg] of rig.legs.entries()) {
           const side = index === 0 ? -1 : 1;
@@ -8455,7 +9788,7 @@
         const cameraEase = game.state === "victory" ? 1.35 : 2.1;
         game.cameraY = THREE.MathUtils.lerp(game.cameraY, game.cameraTargetY, Math.min(1, dt * cameraEase));
         const t = performance.now() / 1000;
-        game.trauma = Math.max(0, game.trauma - dt * 1.45);
+        game.trauma *= Math.pow(0.12, dt); if (game.trauma < 0.0025) game.trauma = 0; // framerate-correct decay w/ organic settle tail (was linear -1.45/s); camera-only
         const shakeAmount = game.shake > 0 ? 0.22 : game.shakeWarning > 0 ? 0.08 : 0;
         const tr = game.trauma * game.trauma; // squared so routine combat stays calm and milestones spike
         const traumaOff = tr * 0.5;
@@ -8467,7 +9800,7 @@
           CAM.dist - Math.min(CAM.aspectPull, window.innerWidth / window.innerHeight) + night * 1.4 - victory * 1.05 - (game.zoomPunch || 0),
         );
         camera.lookAt(player.pos.x * CAM.xLook, game.cameraY + CAM.lookUp + victory * 1.4, 0);
-        camera.rotation.z += Math.sin(t * 58.5) * tr * 0.05;
+        camera.rotation.z += (Math.sin(t * 58.5) * 0.05 + Math.sin(t * 113.0) * 0.018) * tr; // shake roll + a decaying high-freq flutter so impact peaks read tighter
         // Walking lumber — applied AFTER lookAt so it reads as the colossus striding (bounded; off under
         // reduce-motion). Heavier heave + a slow shoulder roll so you feel perched high on the beast.
         if (!game.reduceMotion && game.started) {
@@ -8812,6 +10145,7 @@
       }
 
       function updateHud() {
+        if (timeVeil) timeVeil.classList.toggle("active", game.worldSlow > 0);
         const rank = streakRank(game.streak);
         setText(ui.wave, "wave", String(game.victoryReached ? WIN_WAVE : game.wave));
         setText(ui.streak, "streak", String(game.streak));
@@ -8986,10 +10320,10 @@
           const f = floaters[i];
           f.life -= dt;
           const p = 1 - f.life / f.maxLife;
-          f.x += f.vx * dt;
-          f.y -= f.rise * dt;
-          const pop = p < 0.2 ? 0.6 + (p / 0.2) * 0.65 : 1.25 - Math.min(1, (p - 0.2) / 0.8) * 0.25;
-          const opacity = p < 0.15 ? p / 0.15 : 1 - Math.max(0, (p - 0.55) / 0.45);
+          f.x += f.vx * dt * Math.max(0.2, f.life / f.maxLife); // horizontal drift DAMPS as it ages (settles, not constant)
+          f.y -= f.rise * dt * (0.45 + 0.55 * easeOutCubic(p)); // rise eases (fast up, then eases off)
+          const pop = 0.7 + easeOutBack(Math.min(1, p / 0.38)) * 0.4; // back-ease pop-IN with overshoot, settles ~1.1
+          const opacity = p < 0.15 ? easeInOutCubic(p / 0.15) : 1 - easeInCubic(Math.max(0, (p - 0.55) / 0.45)); // ease in -> hold -> ease out
           f.el.style.transform = `translate(${f.x.toFixed(1)}px, ${f.y.toFixed(1)}px) translate(-50%, -50%) scale(${pop.toFixed(3)})`;
           f.el.style.opacity = Math.max(0, opacity).toFixed(3);
           if (f.life <= 0) {
@@ -9058,19 +10392,59 @@
         return group;
       }
 
+      // READABILITY HALOS (visual-only; READS enemy.pos/pickup.pos, writes nothing to the sim). Drops + mobs blend
+      // into the busy stone-belt geometry, so lay a soft additive glow halo under each to lift it off the surface:
+      // a subtle threat tint for mobs, a brighter GOLD pulse for pickups. Pooled; gameplay-only; honors reduce-motion.
+      let readGlows = null;
+      function updateReadabilityRings() {
+        if (game.reduceMotion) { if (readGlows) readGlows.visible = false; return; }
+        if (!readGlows) {
+          readGlows = new THREE.Group();
+          readGlows.userData = { pool: [], tex: glowTexture() };
+          if (groups.effects) groups.effects.add(readGlows);
+        }
+        readGlows.visible = true;
+        const pool = readGlows.userData.pool, tex = readGlows.userData.tex;
+        const tt = performance.now() * 0.005;
+        let idx = 0;
+        const place = (pos, size, color, op) => {
+          let m = pool[idx];
+          if (!m) {
+            m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: tex || null, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: true }));
+            readGlows.add(m); pool.push(m);
+          }
+          m.visible = true;
+          m.position.set(pos.x, pos.y, surfaceZ(pos.x, pos.y) - 0.05); // just UNDER the actor -> haloes around it
+          m.scale.set(size, size, 1);
+          if (m.material.color && typeof m.material.color.setHex === "function") m.material.color.setHex(color);
+          m.material.opacity = op;
+          idx += 1;
+        };
+        for (let i = 0; i < game.enemies.length; i += 1) {
+          const e = game.enemies[i];
+          if (e.intangible > 0) continue; // skip a submerged serpent
+          place(e.pos, (e.radius || 0.6) * 2.9, 0xff6a2c, 0.5); // tighter + stronger threat halo so mobs lift off the busy stone
+        }
+        for (let i = 0; i < game.pickups.length; i += 1) {
+          const p = game.pickups[i];
+          place(p.pos, 3.0 + Math.sin(tt + (p.phase || 0)) * 0.5, 0xffd060, 0.62); // brighter GOLD pulse -> drops are easy to find
+        }
+        for (let i = idx; i < pool.length; i += 1) pool[i].visible = false;
+      }
+
       function updateAura(dt) {
         if (!game.auraMesh) return;
         const target = streakTierLevel(game.streak);
-        game.auraLevel = THREE.MathUtils.lerp(game.auraLevel, target, Math.min(1, dt * 6));
+        game.auraLevel = damp(game.auraLevel, target, 8, dt); // framerate-correct level ramp (cosmetic; no combat coupling)
         const lvl = game.auraLevel;
         const { ring, glow } = game.auraMesh.userData;
         // Sit the aura ON the (now lumpy) surface so the flat disc never clips through the body
         // as a hard white crescent.
         game.auraMesh.position.set(player.pos.x, player.pos.y - 0.1, surfaceZ(player.pos.x, player.pos.y - 0.1) + 0.12);
-        const pulse = 1 + Math.sin(performance.now() * 0.006) * 0.06 * lvl;
+        const pulse = 1 + (0.5 + 0.5 * Math.sin(performance.now() * 0.006)) * 0.08 * lvl; // smoother positive-only breathe
         game.auraMesh.scale.setScalar((0.7 + lvl * 0.95) * pulse);
         tmpColor.set(streakRank(game.streak).color);
-        ring.material.color.lerp(tmpColor, Math.min(1, dt * 6));
+        ring.material.color.lerp(tmpColor, 1 - Math.pow(0.2, dt)); // framerate-correct snappy rank-up colour snap
         glow.material.color.copy(ring.material.color);
         ring.material.opacity = lvl * 0.5;
         glow.material.opacity = lvl * 0.34; // soft radial halo now (was a hard box)
@@ -9173,13 +10547,13 @@
 
       function updateSwingingAxe(effect) {
         const progress = THREE.MathUtils.clamp(1 - effect.life / effect.maxLife, 0, 1);
-        const sweep = -Math.PI / 2 + progress * Math.PI;
+        const sweep = -Math.PI / 2 + easeOutSine(progress) * Math.PI; // arc WHIPS out fast then eases (was linear); pure cosmetic trail
         const angle = sweep * effect.side;
         const dir = rotateVec2(effect.facing, angle).normalize();
         const endpoint = effect.origin.clone().add(dir.clone().multiplyScalar(effect.radius * (0.72 + progress * 0.18)));
         effect.mesh.position.set(endpoint.x, endpoint.y, 1.02);
         effect.mesh.rotation.z = facingToRotation(dir) + Math.PI / 2 + effect.side * 0.18;
-        effect.mesh.scale.setScalar(0.9 + progress * 0.22);
+        effect.mesh.scale.setScalar(0.9 + easeOutBack(Math.min(1, progress / 0.8)) * 0.25); // head whips out with a small overshoot, then settles
         orientChain(effect.chain, effect.origin, endpoint);
       }
 
@@ -9432,7 +10806,7 @@
         ring.position.set(pos.x, pos.y, 0.6);
         ring.scale.setScalar(radius * 1.9);
         groups.effects.add(ring);
-        game.zones.push({
+        const zone = {
           kind: "strike",
           pos: pos.clone(),
           radius,
@@ -9442,6 +10816,165 @@
           maxLife: delay,
           mesh: ring,
           fired: false,
+        };
+        game.zones.push(zone);
+        return zone;
+      }
+
+      // ===================== MEGA-SUITE special helpers (streak/birthday reworks) =====================
+
+      // STRAFE: the y-row that currently holds the most mobs (so the comet lands on the crowd).
+      function densestRowY() {
+        const live = game.enemies.filter((e) => !e.dead);
+        if (!live.length) return player.pos.y;
+        let bestY = live[0].pos.y;
+        let bestCount = -1;
+        for (const a of live) {
+          let c = 0;
+          for (const b of live) if (Math.abs(a.pos.y - b.pos.y) < 1.8) c += 1;
+          if (c > bestCount) {
+            bestCount = c;
+            bestY = a.pos.y;
+          }
+        }
+        return bestY;
+      }
+
+      // SPARK: a thin ~15°-wide cone of sparks that stays live for 2s.
+      function spawnSparkCone(origin, dir, dmg) {
+        if (dir.lengthSq() < 0.001) dir.set(0, 1);
+        dir.normalize();
+        game.zones.push({
+          kind: "sparkcone",
+          pos: origin.clone(),
+          dir: dir.clone(),
+          range: 11,
+          halfAngle: 0.135, // ~15.5° total
+          dmg,
+          life: 2,
+          maxLife: 2,
+          tick: 0,
+          mesh: null,
+        });
+      }
+
+      // RUSH: a long forward dash that tramples (insta-kills) everything in a line.
+      function rushDash(dmg) {
+        const f = player.facing.clone();
+        if (f.lengthSq() < 0.001) f.set(0, 1);
+        f.normalize();
+        const dist = 13;
+        for (const e of [...game.enemies]) {
+          if (e.dead || e.intangible > 0) continue;
+          const along = THREE.MathUtils.clamp(e.pos.clone().sub(player.pos).dot(f), 0, dist);
+          const closest = player.pos.clone().addScaledVector(f, along);
+          if (e.pos.distanceTo(closest) < 1.5 + e.radius) {
+            createGore(e.pos, f, 8);
+            if (e.type === "boss") damageEnemy(e, dmg * 2.5, f);
+            else killEnemy(e, f);
+          }
+        }
+        const end = player.pos.clone().addScaledVector(f, dist);
+        end.x = THREE.MathUtils.clamp(end.x, -HALF_W, HALF_W);
+        end.y = THREE.MathUtils.clamp(end.y, game.stageCenter - HALF_H, game.stageCenter + HALF_H);
+        player.pos.copy(end);
+        game.invincible = Math.max(game.invincible, 0.45);
+        createChainSweep(player.pos.clone(), f, 4, 0xffd24c, true);
+        addTrauma(0.5);
+        blip({ type: "triangle", freq: 420, dur: 0.2, gain: 0.12, freqEnd: 120 });
+      }
+
+      // TITAN STEP: a giant footstomp (strike + stun + a footprint).
+      function scheduleStomp(pos, delay, radius, dmg) {
+        const z = scheduleStrike(pos, delay, radius, dmg, 0xf8bf48);
+        z.stomp = true;
+      }
+
+      // ROOTS: thorns erupt from the ground (strike + root).
+      function scheduleThorns(pos, delay, radius, dmg) {
+        const z = scheduleStrike(pos, delay, radius, dmg, 0x6fb04a);
+        z.thorns = true;
+      }
+
+      // METEORS: a rocky meteor falls from the sky to the impact point over the delay.
+      function spawnMeteor(pos, delay, radius, dmg) {
+        const z = scheduleStrike(pos, delay, radius, dmg, 0xff6a1a);
+        const rock = new THREE.Mesh(
+          new THREE.IcosahedronGeometry(0.5, 0),
+          new THREE.MeshBasicMaterial({ color: 0x6a4a36 }),
+        );
+        rock.position.set(pos.x, pos.y, 8);
+        groups.effects.add(rock);
+        z.meteorMesh = rock;
+        z.meteorH = 8;
+      }
+
+      // MATRIX SPLIT: a grid; along each line a wall-laser erupts (damage along the lines).
+      function spawnMatrixGrid(pos, radius, dmg) {
+        const lines = 5;
+        for (let i = 0; i < lines; i += 1) {
+          const off = -radius + (i / (lines - 1)) * radius * 2;
+          spawnLaserWall(new THREE.Vector2(pos.x + off, pos.y), true, radius, dmg);
+          spawnLaserWall(new THREE.Vector2(pos.x, pos.y + off), false, radius, dmg);
+        }
+        addTrauma(0.5);
+        screenPulse(0.24, 0x65d5ff);
+        blip({ type: "square", freq: 280, dur: 0.16, gain: 0.1 });
+      }
+
+      function spawnLaserWall(center, vertical, halfLen, dmg) {
+        for (const e of [...game.enemies]) {
+          if (e.dead || e.intangible > 0) continue;
+          const off = vertical ? Math.abs(e.pos.x - center.x) : Math.abs(e.pos.y - center.y);
+          const along = vertical ? Math.abs(e.pos.y - center.y) : Math.abs(e.pos.x - center.x);
+          if (off < 0.95 && along < halfLen + 1.5) {
+            damageEnemy(e, dmg, e.pos.clone().sub(center));
+            createHitSpark(e.pos, 0x65d5ff, 3);
+          }
+        }
+        const len = (halfLen + 1.5) * 2;
+        const mesh = new THREE.Mesh(
+          new THREE.PlaneGeometry(vertical ? 0.5 : len, vertical ? len : 0.5),
+          new THREE.MeshBasicMaterial({
+            color: 0x65d5ff,
+            transparent: true,
+            opacity: 0.75,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            side: THREE.DoubleSide,
+          }),
+        );
+        mesh.position.set(center.x, center.y, 0.5);
+        groups.effects.add(mesh);
+        // short-lived "rising wall" — the aesthetics session can stand these up into vertical sheets.
+        game.zones.push({ kind: "matrixwall", pos: center.clone(), mesh, life: 0.6, maxLife: 0.6 });
+      }
+
+      // WRATH: a towering wall of god-fire sweeps the whole arena left→right.
+      function spawnWrathWall(dmg) {
+        const startX = -HALF_W - 1.5;
+        const mesh = new THREE.Mesh(
+          new THREE.PlaneGeometry(1.6, HALF_H * 2 + 2),
+          new THREE.MeshBasicMaterial({
+            color: 0xff5a2a,
+            transparent: true,
+            opacity: 0.72,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            side: THREE.DoubleSide,
+          }),
+        );
+        mesh.position.set(startX, game.stageCenter, 0.6);
+        groups.effects.add(mesh);
+        game.zones.push({
+          kind: "wrathwall",
+          pos: new THREE.Vector2(startX, game.stageCenter),
+          wallX: startX,
+          speed: (HALF_W * 2 + 3) / 1.7, // crosses the arena in ~1.7s
+          dmg,
+          mesh,
+          life: 1.9,
+          maxLife: 1.9,
         });
       }
 
@@ -9507,19 +11040,127 @@
               }
               logEvent("shake-slam", { hit });
             }
+          } else if (z.kind === "hexsigil") {
+            // HEX CONDUIT rune-sigil: a hexagonal telegraph blooms + spins, then detonates once (NON-deflectable).
+            const p = 1 - Math.max(0, z.life) / z.maxLife;
+            z.mesh.scale.setScalar(z.killR * (2.0 - 1.1 * p));
+            z.mesh.rotation.z += dt * 1.8;
+            z.mesh.material.opacity = 0.5 + 0.4 * Math.abs(Math.sin(performance.now() * 0.016));
+            z.disc.rotation.z = z.mesh.rotation.z;
+            z.disc.material.opacity = 0.1 + 0.18 * p;
+            if (z.life <= 0 && !z.fired) {
+              z.fired = true;
+              createRing(z.pos, 0xb968ff, z.killR * 1.2);
+              addTrauma(0.4);
+              screenPulse(0.14, 0xb968ff);
+              const hit = game.state === "wave" && player.pos.distanceTo(z.pos) < z.killR && game.invincible <= 0 && game.godMode <= 0;
+              if (hit) {
+                damagePlayer(12 + game.wave * 1.1, { source: "hexsigil" });
+                damageStreak({ source: "hexsigil" });
+                game.stagger = Math.max(game.stagger, 0.2);
+                impact("special", player.pos);
+              }
+            }
+          } else if (z.kind === "hexbeam") {
+            // HEX CONDUIT sweep-beam: rotates from a fixed origin; a brief warmup, then it's hot (NON-deflectable, ticking).
+            z.angle += z.angVel * dt;
+            const since = z.maxLife - z.life;
+            const warm = since < z.warmup;
+            const ca = Math.cos(z.angle), sa = Math.sin(z.angle);
+            z.mesh.position.set(z.origin.x + ca * z.length * 0.5, z.origin.y + sa * z.length * 0.5, 0.55);
+            const wNow = warm ? z.halfWidth * 2 * (0.16 + 0.6 * (since / z.warmup)) : z.halfWidth * 2;
+            z.mesh.scale.set(z.length, wNow, 1);
+            z.mesh.rotation.z = z.angle;
+            const pulse = warm ? 0.32 : 0.55 + 0.35 * Math.abs(Math.sin(performance.now() * 0.02));
+            z.mesh.material.opacity = pulse * Math.min(1, z.life / 0.4);
+            if (!warm) {
+              const rx = player.pos.x - z.origin.x, ry = player.pos.y - z.origin.y;
+              const along = rx * ca + ry * sa;
+              const perp = Math.abs(-rx * sa + ry * ca);
+              z.hitCd -= dt;
+              if (along > 0.4 && along < z.length && perp < z.halfWidth && z.hitCd <= 0 && game.state === "wave" && game.invincible <= 0 && game.godMode <= 0) {
+                z.hitCd = 0.5;
+                damagePlayer(7 + game.wave * 0.55, { source: "hexbeam" });
+                damageStreak({ source: "hexbeam" });
+                game.stagger = Math.max(game.stagger, 0.15);
+                impact("special", player.pos);
+              }
+            }
           } else if (z.kind === "strike") {
             // A timed airstrike/meteor/mortar impact: telegraph ring shrinks, then detonates once.
             const p = 1 - Math.max(0, z.life) / z.maxLife;
             z.mesh.scale.setScalar(z.radius * (1.9 - 0.9 * p));
             z.mesh.material.opacity = 0.5 + 0.4 * Math.abs(Math.sin(performance.now() * 0.02));
+            if (z.meteorMesh) z.meteorMesh.position.set(z.pos.x, z.pos.y, Math.max(0.5, z.meteorH * (1 - p))); // rock falls in
             if (z.life <= 0 && !z.fired) {
               z.fired = true;
               radialDamage(z.pos, z.radius, z.damage);
               createFlameBurst(z.pos, z.radius);
               createRing(z.pos, z.color, z.radius * 1.1);
-              addTrauma(0.45);
+              addTrauma(z.stomp ? 0.6 : 0.45);
               screenPulse(0.14, z.color);
+              if (z.stomp) {
+                // Titan footstomp: stun + a heavy footprint shock.
+                for (const e of game.enemies) {
+                  if (!e.dead && e.pos.distanceTo(z.pos) < z.radius * 1.2) e.stunned = Math.max(e.stunned, 1.4);
+                }
+                createRing(z.pos, 0xf8bf48, z.radius * 1.4);
+              }
+              if (z.thorns) {
+                // Roots: impale + pin everything caught.
+                for (const e of game.enemies) {
+                  if (!e.dead && e.pos.distanceTo(z.pos) < z.radius) e.rooted = Math.max(e.rooted, 4);
+                }
+                createRootLines(z.pos, z.radius);
+              }
+              if (z.meteorMesh) {
+                groups.effects.remove(z.meteorMesh);
+                disposeObject(z.meteorMesh);
+                z.meteorMesh = null;
+              }
             }
+          } else if (z.kind === "sparkcone") {
+            // SPARK: a thin cone of bright sparks that shreds whatever stands in it for 2s.
+            z.tick -= dt;
+            const doTick = z.tick <= 0;
+            if (doTick) z.tick = 0.12;
+            for (const e of game.enemies) {
+              if (e.dead || e.intangible > 0) continue;
+              const rel = e.pos.clone().sub(z.pos);
+              const d = rel.length();
+              if (d > z.range || d < 0.01) continue;
+              if (rel.normalize().dot(z.dir) < Math.cos(z.halfAngle)) continue;
+              if (doTick) elementHit(e, z.dmg * 0.18, "lightning", rel);
+            }
+            // thin bright spark streaks fanning out along the cone
+            if (doTick) {
+              for (let s = 0; s < 4; s += 1) {
+                const a = (Math.random() * 2 - 1) * z.halfAngle;
+                const dir = rotateVec2(z.dir, a);
+                const end = z.pos.clone().addScaledVector(dir, z.range * (0.5 + Math.random() * 0.5));
+                createLineEffect(z.pos.clone(), end, 0xfff2a0, 0.03, 0.18);
+              }
+            }
+          } else if (z.kind === "wrathwall") {
+            // WRATH: a wall of god-fire sweeping across the arena, incinerating everything it passes.
+            z.wallX += z.speed * dt;
+            z.mesh.position.set(z.wallX, game.stageCenter, 0.6);
+            z.mesh.material.opacity = 0.55 + 0.2 * Math.abs(Math.sin(performance.now() * 0.02));
+            for (const e of [...game.enemies]) {
+              if (e.dead || e.intangible > 0) continue;
+              if (Math.abs(e.pos.x - z.wallX) < 1.1) {
+                if (e.type === "boss") damageEnemy(e, z.dmg * 0.3, new THREE.Vector2(1, 0));
+                else {
+                  createFlameBurst(e.pos, 1.4);
+                  killEnemy(e, new THREE.Vector2(1, 0));
+                }
+              }
+            }
+          } else if (z.kind === "matrixwall") {
+            // MATRIX SPLIT wall-laser flash (rises + fades; aesthetics session can stand it vertical).
+            const p = 1 - Math.max(0, z.life) / z.maxLife;
+            z.mesh.material.opacity = (1 - p) * 0.75;
+            z.mesh.scale.setScalar(1 + p * 0.4);
           } else if (z.kind === "waterwave") {
             const p = 1 - z.life / z.maxLife;
             z.radius = p * z.maxRadius;
@@ -9536,6 +11177,42 @@
                 elementHit(e, z.damage, "water", out); // water-wave carries the weakness multiplier
               }
             }
+          } else if (z.kind === "combo") {
+            const c = z.combo;
+            if (c.roam) {
+              const tgt = nearestEnemy(z.pos, 16);
+              if (tgt) {
+                const dir = tgt.pos.clone().sub(z.pos);
+                if (dir.lengthSq() > 0.01) z.pos.addScaledVector(dir.normalize(), c.speed * dt);
+              }
+            }
+            z.tick -= dt;
+            const doTick = z.tick <= 0;
+            if (doTick) z.tick = 0.14;
+            for (const e of game.enemies) {
+              if (e.dead || e.intangible > 0) continue;
+              const d = e.pos.distanceTo(z.pos);
+              if (d >= z.radius) continue;
+              if (c.burn) e.burn = Math.max(e.burn || 0, 0.7);
+              if (c.slow) e.slowed = Math.max(e.slowed, 1.6);
+              if (c.shock && doTick) e.stunned = Math.max(e.stunned, 0.5);
+              if (c.blind) e.cooldown = Math.max(e.cooldown, 0.4); // steam blinds shooters (keeps resetting fire)
+              if (e.knockVel) {
+                if (c.pull) {
+                  const pull = z.pos.clone().sub(e.pos);
+                  if (pull.lengthSq() > 0.01) e.knockVel.addScaledVector(pull.normalize(), c.pull * dt);
+                }
+                if (c.push) {
+                  const out = e.pos.clone().sub(z.pos);
+                  if (out.lengthSq() > 0.01) e.knockVel.addScaledVector(out.normalize(), c.push * dt);
+                }
+              }
+              if (doTick && c.dmg) elementHit(e, c.dmg, c.element, e.pos.clone().sub(z.pos));
+            }
+            z.mesh.position.set(z.pos.x, z.pos.y, 0.08);
+            z.mesh.rotation.z += dt * (c.roam ? 11 : 2.2);
+            z.mesh.material.opacity = Math.max(0, z.life / z.maxLife) * 0.45;
+            if (doTick) createHitSpark(z.pos.clone(), c.color, 0);
           }
           if (z.life <= 0) {
             groups.effects.remove(z.mesh);
@@ -9782,11 +11459,11 @@
 
       function bossName(wave) {
         const names = [
-          "The Stone Father",
-          "Ribcage Troll",
-          "Revenant Matron",
-          "Root Serpent",
-          "Shield Wall King",
+          "Grave Tyrant",
+          "Rune Warden",
+          "Pack Alpha",
+          "Hex Conduit",
+          "Crown Colossus",
           "The Giant Hand",
           "Moss-Blood Minotaur",
           "Birthday Hater",
