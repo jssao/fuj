@@ -2512,7 +2512,8 @@
         if (game.started) updateFloaters(realDt);
         updateDynamicLights(realDt);
         updateColossusWalk(realDt);
-        updateCamera(realDt);
+        if (game.fxStudio) { if (game.__fxOrbit) game.__fxOrbit.update(); } // effects-viewer STUDIO: orbit camera owns the view
+        else updateCamera(realDt);
       }
 
       function makeRunId() {
@@ -2979,9 +2980,39 @@
           { id: "floater", g: "Screen", label: "Floater text", run: (P) => spawnFloater(P, "1234", { color: 0xffd24c, size: 24, life: 0.9, rise: 30 }) },
           { id: "toast", g: "Screen", label: "Toast", run: () => showToast("Effects viewer — hello!", 2.0) },
         ];
+        // STUDIO mode: the model-viewer environment for effects — world/HUD hidden, dark backdrop, a LIT
+        // floor disc so light casts read (flashFxLight/fire glow), Santiago parked at center (player-anchored
+        // effects land on him), orbit camera (updateCamera gated via game.fxStudio in the main loop).
+        let _stu = null;
+        async function studio(on) {
+          if (on && !_stu) {
+            const cx = player.pos.x, cy = player.pos.y, fz = (typeof surfaceZ === "function" ? surfaceZ(cx, cy) : 0);
+            _stu = { bg: scene.background, fog: scene.fog, sunI: sun.intensity, hemiI: hemi.intensity, floor: null, grid: null, ctl: null };
+            scene.background = new THREE.Color(0x16191d); scene.fog = null;
+            sun.intensity = 0.8; hemi.intensity = 0.7; // dim ambience -> effect lights pop on the floor
+            groups.terrain.visible = groups.props.visible = groups.world.visible = false;
+            const hud = document.querySelector(".hud"); if (hud) hud.style.display = "none";
+            _stu.floor = new THREE.Mesh(new THREE.CircleGeometry(15, 48), new THREE.MeshStandardMaterial({ color: 0x3a3e44, roughness: 0.9, metalness: 0 }));
+            _stu.floor.position.set(cx, cy, fz - 0.02); scene.add(_stu.floor); // XY plane = the play surface (z = height)
+            _stu.grid = new THREE.GridHelper(30, 30, 0x404a5a, 0x2c3138); _stu.grid.rotation.x = Math.PI / 2; // grid lies in XZ -> rotate into the XY play plane
+            _stu.grid.position.set(cx, cy, fz); scene.add(_stu.grid);
+            try { const m = await import("three/addons/controls/OrbitControls.js"); _stu.ctl = new m.OrbitControls(camera, renderer.domElement); _stu.ctl.target.set(cx, cy + 2.8, fz + 0.8); _stu.ctl.update(); game.__fxOrbit = _stu.ctl; } catch (e) { /* no orbit: gameplay camera stays */ }
+            game.fxStudio = true;
+          } else if (!on && _stu) {
+            scene.background = _stu.bg; scene.fog = _stu.fog; sun.intensity = _stu.sunI; hemi.intensity = _stu.hemiI;
+            groups.terrain.visible = groups.props.visible = groups.world.visible = true;
+            const hud = document.querySelector(".hud"); if (hud) hud.style.display = "";
+            if (_stu.floor) { scene.remove(_stu.floor); _stu.floor.geometry.dispose(); _stu.floor.material.dispose(); }
+            if (_stu.grid) scene.remove(_stu.grid);
+            if (_stu.ctl) { _stu.ctl.dispose(); game.__fxOrbit = null; }
+            game.fxStudio = false; _stu = null;
+          }
+          return !!game.fxStudio;
+        }
         W.fx = {
           list: () => FX.map((f) => ({ id: f.id, group: f.g, label: f.label, notes: f.notes || "" })),
           play: (id, dx, dy) => { const f = FX.find((x) => x.id === id); if (!f) return false; try { f.run(at(dx, dy)); } catch (e) { console.warn("fx:" + id, e); return false; } return true; },
+          studio,
         };
       })();
 

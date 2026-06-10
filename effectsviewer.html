@@ -35,16 +35,16 @@
       <div id="panel">
         <h1>✨ Effects Viewer</h1>
         <div id="status">Loading game…</div>
-        <div class="hint">Effects play at a point just in front of Santiago — move him to re-aim. Movement keys forward to the game.</div>
+        <div class="hint">Studio: drag to orbit, wheel to zoom. Effects play just in front of Santiago at center; lit floor shows light casts. Movement keys still forward to the game.</div>
         <div class="row">
           <button id="restart" class="prime">Restart stage</button>
           <label class="opt"><input id="loop" type="checkbox" /> Loop last</label>
           <label class="opt">every <input id="loopms" type="number" min="200" max="5000" step="100" value="900" /> ms</label>
         </div>
         <div class="row" style="margin-top:6px">
+          <label class="opt"><input id="studio" type="checkbox" checked /> Studio (dark stage + floor)</label>
           <label class="opt">Dummies <input id="count" type="number" min="0" max="20" value="0" /></label>
           <label class="opt"><input id="shake" type="checkbox" checked /> Screen shake</label>
-          <label class="opt"><input id="grade" type="checkbox" /> Cinematic look</label>
         </div>
 
         <div id="fxgroups"></div>
@@ -72,7 +72,7 @@
           dummies: Math.max(0, Math.min(20, parseInt($("count").value, 10) || 0)),
           invuln: true, ai: false, respawn: true, hp: false,
           shake: $("shake").checked,
-          grade: $("grade").checked,
+          grade: false, // studio owns the look; sandbox grade stays on the clean debug setting
           wave: 15,
         };
       }
@@ -129,9 +129,10 @@
       // blur any panel button after click so Space/Q/E don't re-trigger it (they go to the game instead)
       $("panel").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) b.blur(); });
 
-      ["shake", "grade"].forEach((id) => $(id).addEventListener("change", () => { if (sb) safe(() => sb.setOpts(opts())); }));
+      $("shake").addEventListener("change", () => { if (sb) safe(() => sb.setOpts(opts())); });
+      $("studio").addEventListener("change", () => { if (fx) safe(() => fx.studio($("studio").checked)); });
       $("count").addEventListener("change", () => { if (sb) safe(() => { sb.setOpts(opts()); sb.respawnDummies(); }); });
-      $("restart").addEventListener("click", () => safe(() => sb.start(opts())));
+      $("restart").addEventListener("click", () => safe(() => { sb.start(opts()); if ($("studio").checked) fx.studio(true); }));
 
       // ---- forward movement / Q / E / Space to the game even when the panel has focus ----
       function forwardKey(e) {
@@ -148,7 +149,7 @@
         const h = hook();
         if (h && h.sandbox && h.fx && h.game) {
           sb = h.sandbox; fx = h.fx;
-          if (!ready) { ready = true; statusEl.textContent = "Effects API ready — " + fx.list().length + " primitives + casts."; buildControls(); safe(() => sb.start(opts())); }
+          if (!ready) { ready = true; statusEl.textContent = "Effects API ready — " + fx.list().length + " primitives + casts."; buildControls(); safe(() => { sb.start(opts()); if ($("studio").checked) fx.studio(true); }); }
         } else { ready = false; sb = null; fx = null; statusEl.textContent = "Waiting for game to load…"; }
         setTimeout(waitForApi, 400);
       }
