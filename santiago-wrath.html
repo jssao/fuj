@@ -2915,6 +2915,76 @@
         W.sandbox = SB;
       })();
 
+      // ===================== EFFECTS API (dev tool — driven by game/effectsviewer.html) =====================
+      // A catalog of every PRIMITIVE visual effect (impacts/telegraphs/zones/player/celebration/screen), each
+      // playable at a stage point on demand. The big composed casts (elements/combos/streaks) stay on
+      // W.sandbox. Like the sandbox: INERT until the page calls it — it only CALLS existing creators.
+      (function attachFxApi() {
+        const W = window.__SANTIAGO_WRATH__; if (!W) return;
+        let _fxPick = -1;
+        const at = (dx, dy) => { const px = player && player.pos ? player.pos.x : 0, py = player && player.pos ? player.pos.y : (game.stageCenter || 0); return new THREE.Vector2(px + (dx || 0), py + (dy === undefined ? 2.8 : dy)); };
+        const V = (x, y) => new THREE.Vector2(x, y);
+        const FX = [
+          { id: "hitspark", g: "Impact", label: "Hit spark", run: (P) => createHitSpark(P, 0xff6a1a, 10) },
+          { id: "gore", g: "Impact", label: "Gore burst", run: (P) => createGore(P, V(1, 0), 10) },
+          { id: "impact-light", g: "Impact", label: "Impact: light", run: (P) => impact("light", P, 0xffd24c) },
+          { id: "impact-kill", g: "Impact", label: "Impact: kill", run: (P) => impact("kill", P, 0xff6a1a) },
+          { id: "impact-charged", g: "Impact", label: "Impact: charged", run: (P) => impact("charged", P, 0xf8bf48) },
+          { id: "impact-special", g: "Impact", label: "Impact: special", run: (P) => impact("special", P, 0x9be7ff) },
+          { id: "impact-finale", g: "Impact", label: "Impact: finale", run: (P) => impact("finale", P, 0xffd24c) },
+          { id: "lightning-arc", g: "Impact", label: "Lightning arc", run: (P) => createLightningArc(P, P.clone().add(V(2.5, 1.5))) },
+          { id: "line-bolt", g: "Impact", label: "Line bolt", run: (P) => createLineEffect(P, P.clone().add(V(2, 1)), 0xff7138, 0.05, 0.4) },
+          { id: "rune-bolt", g: "Impact", label: "Rune bolt", run: (P) => createRuneBolt(P, P.clone().add(V(1.8, 0.6)), 0x6f8c42) },
+          { id: "heart-shock", g: "Impact", label: "Heart shock", run: (P) => createHeartShock(P, 2.6) },
+          { id: "kid-impact", g: "Impact", label: "Kid impact", run: (P) => createKidImpact(P, P.clone().add(V(1, 0.5)), 0xf8bf48) },
+          { id: "ring", g: "Telegraphs", label: "Ring pulse", run: (P) => createRing(P, 0xff7138, 2.2) },
+          { id: "tell-ring", g: "Telegraphs", label: "Tell ring", run: (P) => createTellRing(P, 0xff5a3a, 2.5) },
+          { id: "tremor-disc", g: "Telegraphs", label: "Tremor disc", run: (P) => createTremorDisc(P, 1.8, 1.2) },
+          { id: "hex-sigil", g: "Telegraphs", label: "Hex sigil", run: (P) => createHexSigil(P, 1.7, 1.0) },
+          { id: "strike", g: "Telegraphs", label: "Scheduled strike", run: (P) => scheduleStrike(P, 0.8, 2.2, 24) },
+          { id: "meteor", g: "Telegraphs", label: "Meteor", run: (P) => spawnMeteor(P, 0.7, 2.0, 30) },
+          { id: "attack-arc", g: "Telegraphs", label: "Attack arc", run: (P) => createAttackArc(P, V(0, 1), 2.8, 0.85) },
+          { id: "chain-sweep", g: "Telegraphs", label: "Chain sweep", run: (P) => createChainSweep(P, V(1, 0), 2.6, 0xff7138, true) },
+          { id: "hex-beams", g: "Telegraphs", label: "Hex beams", run: (P) => spawnHexBeams({ pos: P.clone(), id: -1 }, 4, { angVel: 0.9, len: 7, hw: 0.45, life: 3.0, warmup: 0.6 }) },
+          { id: "fire-zone", g: "Zones", label: "Fire zone", run: (P) => createFireZone(P, 2.4) },
+          { id: "flame-burst", g: "Zones", label: "Flame burst", run: (P) => createFlameBurst(P, 3.0) },
+          { id: "water-wave", g: "Zones", label: "Water wave", run: (P) => createWaterWave(P, 2.8) },
+          { id: "water-wave-zone", g: "Zones", label: "Water wave zone", run: (P) => createWaterWaveZone(P, 4.5, 0) },
+          { id: "wind-swirl", g: "Zones", label: "Wind swirl", run: (P) => createWindSwirl(P, 2.8) },
+          { id: "slow-dome", g: "Zones", label: "Slow dome", run: (P) => createSlowDome(P, 3.0) },
+          { id: "root-lines", g: "Zones", label: "Root lines", run: (P) => createRootLines(P, 2.6) },
+          { id: "chain-net", g: "Zones", label: "Chain net", run: (P) => createChainNet(P, 2.4, 0xd4c1a1) },
+          { id: "fire-tornado", g: "Zones", label: "Fire tornado", run: (P) => spawnComboZone("firetornado", P) },
+          { id: "storm-tornado", g: "Zones", label: "Storm tornado", run: (P) => spawnComboZone("stormtornado", P) },
+          { id: "tempest", g: "Zones", label: "Tempest", run: (P) => spawnComboZone("tempest", P) },
+          { id: "laser-wall", g: "Zones", label: "Laser wall", run: (P) => spawnLaserWall(P, true, 2.2, 0) },
+          { id: "matrix-grid", g: "Zones", label: "Matrix grid", run: (P) => spawnMatrixGrid(P, 2.2, 0) },
+          { id: "wrath-wall", g: "Zones", label: "Wrath wall", run: () => spawnWrathWall(0) },
+          { id: "axes", g: "Player", label: "Swinging axes", run: (P) => createSwingingAxes(P, V(0, 1), 2.4, 0.85) },
+          { id: "speed-burst", g: "Player", label: "Speed burst", run: (P) => createSpeedBurst(P) },
+          { id: "glasses", g: "Player", label: "Glasses flash", run: () => createGlassesFlash() },
+          { id: "frenzy-aura", g: "Player", label: "Frenzy aura", run: (P) => createFrenzyAura(P) },
+          { id: "god-aura", g: "Player", label: "God-dad aura", run: (P) => createGodDadAura(P) },
+          { id: "kid-pulse", g: "Player", label: "Kid pulse", run: (P) => createKidPulse(P, 0xf8bf48, 2.0) },
+          { id: "axe-throw", g: "Player", label: "Axe throw", run: () => throwAxe(), notes: "no-op while the axe is out" },
+          { id: "pickup", g: "Celebration", label: "Pickup (cycles type)", run: (P) => spawnPickup(P, ["heal", "rune", "charge", "speed", "chain", "lightning"][(_fxPick = (_fxPick + 1) % 6)]) },
+          { id: "fireworks", g: "Celebration", label: "Fireworks", run: (P) => createFireworks(P, 40) },
+          { id: "champagne", g: "Celebration", label: "Champagne", run: (P) => createChampagne(P, 50) },
+          { id: "screen-pulse", g: "Screen", label: "Screen pulse", run: () => screenPulse(0.35, 0xf8bf48) },
+          { id: "trauma", g: "Screen", label: "Camera trauma", run: () => addTrauma(0.5) },
+          { id: "hit-stop", g: "Screen", label: "Hit stop", run: () => freeze(0.16) },
+          { id: "slow-mo", g: "Screen", label: "Slow-mo (0.6s)", run: () => { game.slowMo = Math.max(game.slowMo, 0.6); game.slowMoScale = 0.25; } },
+          { id: "fx-light", g: "Screen", label: "FX light flash", run: (P) => flashFxLight(P, 0xff6a1a, 8, 1.4) },
+          { id: "damage-flash", g: "Screen", label: "Damage flash", run: () => { damageFlash.classList.add("hot"); setTimeout(() => damageFlash.classList.remove("hot"), 90); } },
+          { id: "floater", g: "Screen", label: "Floater text", run: (P) => spawnFloater(P, "1234", { color: 0xffd24c, size: 24, life: 0.9, rise: 30 }) },
+          { id: "toast", g: "Screen", label: "Toast", run: () => showToast("Effects viewer — hello!", 2.0) },
+        ];
+        W.fx = {
+          list: () => FX.map((f) => ({ id: f.id, group: f.g, label: f.label, notes: f.notes || "" })),
+          play: (id, dx, dy) => { const f = FX.find((x) => x.id === id); if (!f) return false; try { f.run(at(dx, dy)); } catch (e) { console.warn("fx:" + id, e); return false; } return true; },
+        };
+      })();
+
       async function openLogPanel() {
         const json = exportGameplayLog();
         logText.value = json;
@@ -6840,7 +6910,7 @@
           grabPoseMob(b.chest, 0, 0, 0.05 * crab);
         }
         if (b.hasBiped) { // zombie WEIGHT-SHIFT: torso rolls onto the planted side each stride (same clock as the legL/legR gait, legRate scales the cadence)
-          const zsh = Math.sin(sp * 0.34 * (cfg.legRate || 1) - 0.6) * (0.15 + 0.85 * mvS) * (cfg.legAmp || 1); // same clock as the biped stride
+          const zsh = Math.sin(sp * 1.1 * (cfg.legRate || 1) - 0.6) * (0.15 + 0.85 * mvS) * (cfg.legAmp || 1); // same clock as the biped stride (sp*1.1)
           grabPoseMob(b.spine, 0, 0, 0.07 * zsh); grabPoseMob(b.chest, 0, 0, 0.05 * zsh); grabPoseMob(b.head, 0, 0, -0.05 * zsh); // head counter-rolls = loose neck
         }
         if (cfg.drape) { // HEAD-LED wraith (lurker): the diamond pitches INTO the glide, the cloak hangs off it and TRAILS like cloth in air
@@ -6883,7 +6953,7 @@
             }
             if (o.userData && o.userData.bipedDepth !== undefined) { // BIPED ZOMBIE GAIT (legL/legR chains): stiff alternating strides about model-right; knee folds through the swing = shuffle
               const bs = o.userData.bipedSide || 1;
-              const blp = sp * 0.34 * (cfg.legRate || 1) + (bs > 0 ? 0 : Math.PI); // distance-locked lurching cadence x legRate, legs in anti-phase (same clock as the weight-shift)
+              const blp = sp * 1.1 * (cfg.legRate || 1) + (bs > 0 ? 0 : Math.PI); // distance-locked cadence x legRate, legs in anti-phase (same clock as the weight-shift). 1.1 CALIBRATED to the legs: implied step = pi/(5*1.1) ~ 0.57u ~ what the thigh swing actually covers on ash-dead (0.34 implied 1.85u steps -> feet lost a 3x race with the ground)
               const bstep = (0.15 + 0.85 * mvS) * (cfg.legAmp || 1);
               setMobBone(o, 0, 0, 0); // gait replaces the generic wave
               if (o.userData.bipedDepth === 0) grabPoseMob(o, 0, Math.sin(blp) * 0.32 * bstep); // thigh stride (model-right pitch: + = forward)
@@ -7099,10 +7169,10 @@
               // = the foot is planted), integrated with a leak: the body surges forward as each planted leg sweeps back,
               // dips through double-support, and rides onto the loaded side. De-glides the field slide into actual
               // footfalls, two per stride cycle. Combat position/hitbox untouched.
-              const la3 = cfgS.legAmp || 1, spd3 = 0.15 + 0.85 * e.__mvS; // same floor as the gait's bstep (mobs never fully idle)
+              const la3 = cfgS.legAmp || 1, spd3 = e.__mvS; // no floor: the stride odometer freezes when parked, so the surge must die too
               let push3 = 0, side3 = 0;
               for (const bs of [1, -1]) {
-                const blp = ph * 1.7 * (cfgS.legRate || 1) + (bs > 0 ? 0 : Math.PI); // EXACT biped bone-drive phase (anti-phase legs, legRate cadence)
+                const blp = (e.__sPh || 0) * 1.1 * (cfgS.legRate || 1) + (bs > 0 ? 0 : Math.PI); // EXACT biped bone-drive phase — the SAME distance-locked sp*1.1 clock as the gait/weight-shift (was wall-time = desynced after the odometer audit)
                 const st = Math.max(0, -Math.cos(blp - 0.5)); // stance window (inverse of the knee fold's gate)
                 push3 += st * st; side3 += st * st * bs;
               }

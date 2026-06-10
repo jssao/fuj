@@ -487,6 +487,7 @@
       }
       function exitView() {
         view.on = false;
+        view.act = null; view.chargeHold = false; view.__crV = 0; // clear any in-flight action preview
         if (tc) { tc.detach(); tc.dispose(); tc = null; } // gizmo belongs to the discarded view scene
         if (view.controls) view.controls.dispose();
         view.scene = null; view.model = null; view.bones = []; view.nodes = []; view.lines = null; view.selected = null; view.selNode = null;
@@ -517,6 +518,9 @@
           <textarea id="posejson" style="display:none" readonly></textarea>
           <label>speed <input type="range" id="a-speed" min="0" max="3" step="0.1" value="1"/></label>
           <button id="a-bind">bind pose</button>
+          <h2>Attacks</h2>
+          <div id="actbtns">${(VIEW_ACTIONS[view.file] || []).map(([a, l]) => `<button class="actb" data-a="${a}">${l}</button>`).join(" ") || '<span class="dim">none defined for this model yet</span>'}</div>
+          <div class="dim">one-shot previews of the in-game attack drives (charge toggles: press again to release)</div>
           <h2>Joints / Rigging</h2>
           <label><input type="checkbox" id="j-show" checked/> show joints</label>
           <div class="dim">${view.bones.length ? "click a sphere to select · sliders pose the selected bone (FK)" : "no bones — static GLB (you can still place joints below and export)"}</div>
@@ -550,6 +554,7 @@
         $("a-flinch").onchange = (e) => (view.anim.flinch = e.target.checked);
         $("a-grab").onchange = (e) => (view.anim.grab = e.target.checked);
         $("a-scratch").onchange = (e) => (view.anim.scratch = e.target.checked);
+        document.querySelectorAll("#actbtns .actb").forEach((el) => (el.onclick = () => playAct(el.dataset.a)));
         $("g-reach").oninput = (e) => { view.grabTune.reach = +e.target.value; computeGrabQs(); };
         $("g-conv").oninput = (e) => { view.grabTune.converge = +e.target.value; computeGrabQs(); };
         $("g-roll").oninput = (e) => (view.grabTune.roll = +e.target.value);
@@ -760,7 +765,18 @@
         // strike (mirrors the game's mobStrikeEnv): one-shot flare OPEN -> SNAP shut -> pump the hold
         const sT = (view.__strikeT = view.anim.grab ? (view.__strikeT || 0) + 0.0166 * view.anim.speed : 0);
         const stk = VIEW_STRIKE[view.file] || { env: strikeEnv }; // per-file attack anim (mirrors MOB_STRIKE); default = hugger flare
-        const gsRaw = gs0 * (sT > 0 ? stk.env(sT) : 1);
+        // ---- one-shot ACTIONS (Attacks panel buttons): play the file's attack for one cycle over the checkbox drives ----
+        const act = view.act, at = act ? (t - act.t0) * view.anim.speed : -1;
+        if (act && at > (ACT_DUR[act.name] || 2.3)) view.act = null;
+        let scBtn = 0, lungeT = -1, tossT = -1, swellAmt = 0, gsBtnT = -1;
+        if (act && at >= 0) {
+          if (act.name === "attack") gsBtnT = at + 0.0001; // one strike-envelope cycle (bite / fire / pump / envelop per file)
+          else if (act.name === "scratch") scBtn = Math.min(1, at * 8) * Math.max(0, Math.min(1, 1 - (at - 1.0) * 4));
+          else if (act.name === "lunge") lungeT = at;
+          else if (act.name === "toss") tossT = at;
+          else if (act.name === "swell") swellAmt = Math.sin(Math.min(1, at / 1.1) * Math.PI);
+        }
+        const gsRaw = gsBtnT >= 0 ? stk.env(gsBtnT) : gs0 * (sT > 0 ? stk.env(sT) : 1);
         // base floor rides the SWAY checkbox (the "alive" master toggle), not the grab blend: in game the
         // floor is unconditional (a zombie always walks arms-forward), so sway-on previews game truth even
         // with grab off; uncheck sway for bind-pose inspection (it already freezes gait/jiggle the same way).
@@ -773,7 +789,7 @@
           _q1.setFromEuler(_e1);
           b.quaternion.copy(b.userData.restQ).multiply(_q1);
         };
-        const sc = (view.__scrS = (view.__scrS || 0) + ((view.anim.scratch ? 1 : 0) - (view.__scrS || 0)) * 0.1); // smoothed scratch 0..1
+        const sc = Math.max(scBtn, (view.__scrS = (view.__scrS || 0) + ((view.anim.scratch ? 1 : 0) - (view.__scrS || 0)) * 0.1)); // smoothed scratch 0..1 (or the one-shot button burst)
         set(byName.root, 0, 0, 0);
         set(byName.spine, DRIVE.pitch * swy + DRIVE.lean * mv + DRIVE.flinch * fl, 0, DRIVE.sway * swy);
         set(byName.chest, DRIVE.pitch * 0.8 * lg + DRIVE.lean * 0.35 * mv, 0, DRIVE.sway * 0.8 * lg);
@@ -784,6 +800,9 @@
           grabPose(byName.chest, 0, 0, 0.05 * crab);
         }
         if (sc > 0.01) { grabPose(byName.spine, 0, 0.10 * sc); grabPose(byName.chest, 0, 0.14 * sc); } // scratch: pitch into the target
+        // simulated DISTANCE-locked stride odometer (mirrors the game's e.__sPh += speed*dt*5 at a 1.4 u/s
+        // representative chase; lean off = parked = the odometer freezes and the feet stop, like the game)
+        view.__sPh = (view.__sPh || 0) + 0.0166 * view.anim.speed * (mv ? 1.4 : 0) * 5.0;
         if (view.hasLegs && view.model) { // SCUTTLE-in-place preview v2 (mirrors the game): propulsion summed from the PLANTED legs' power strokes
           const onM = view.anim.sway ? 1 : 0, spd = 0.1 + 0.9 * mv, LT = legTune();
           let push = 0, sideLoad = 0, nL = 0;
@@ -810,10 +829,10 @@
           grabPose(byName.chest, 0, 0.12 * Math.sin(gph - 0.7) * spd * onM);
         } else if (view.hasBiped && view.model) { // STEP-in-place preview (mirrors the game): surge from the SAME legL/legR stance math the knees use —
           // forward push while a planted (knee-straight) leg sweeps back, dip through double-support, weight onto the loaded side
-          const onM = view.anim.sway ? 1 : 0, spd = 0.15 + 0.85 * mv, BA = bipedAmp();
+          const onM = view.anim.sway ? 1 : 0, spd = mv, BA = bipedAmp(); // no floor: the simulated odometer freezes when "parked" (lean off), so the surge dies too
           let push = 0, side = 0;
           for (const bs of [1, -1]) {
-            const blp = ph * 1.7 * bipedRate() + (bs > 0 ? 0 : Math.PI);
+            const blp = (view.__sPh || 0) * 1.1 * bipedRate() + (bs > 0 ? 0 : Math.PI);
             const st = Math.max(0, -Math.cos(blp - 0.5)); // stance window (inverse of the knee fold's gate)
             push += st * st; side += st * st * bs;
           }
@@ -828,7 +847,7 @@
           grabPose(byName.spine, 0.05 * Math.sin(fph * 0.7) * onF, (0.16 * mv + 0.04 * Math.sin(fph * 0.6 + 2)) * onF);
         }
         if (view.hasBiped) { // zombie WEIGHT-SHIFT (mirrors the game): torso rolls onto the planted side each stride
-          const zsh = Math.sin(ph * 1.7 * bipedRate() - 0.6) * (0.15 + 0.85 * mv) * bipedAmp() * (view.anim.sway ? 1 : 0); // per-file legAmp + cadence (VIEW_BIPED / _RATE)
+          const zsh = Math.sin((view.__sPh || 0) * 1.1 * bipedRate() - 0.6) * (0.15 + 0.85 * mv) * bipedAmp() * (view.anim.sway ? 1 : 0); // same sp*1.1 stride clock as the gait (VIEW_BIPED / _RATE tune)
           grabPose(byName.spine, 0, 0, 0.07 * zsh); grabPose(byName.chest, 0, 0, 0.05 * zsh); grabPose(byName.head, 0, 0, -0.05 * zsh);
         }
         const drape = VIEW_DRAPE[view.file];
@@ -838,6 +857,20 @@
         }
         if (gsOn) { grabPose(byName.spine, 0, 0.10 * gs + 0.20 * slam); grabPose(byName.chest, 0, 0.16 * gs + 0.25 * slam); } // lean-in (rears back while negative); slam doubles over for the hit
         if (slam > 0) grabPose(byName.head, 0, 0.5 * slam); // head CHOMPS down with the overshoot (mirrors the game)
+        // ---- one-shot ACTION overlays (Attacks buttons): boss lunge, projectile toss/cast, bursar swell ----
+        if (lungeT >= 0) { // rear back -> LAUNCH (mirrors the in-game telegraph -> charge body language)
+          const rear = lungeT < 0.55 ? Math.min(1, lungeT / 0.4) : 0;
+          const go = lungeT >= 0.55 ? Math.pow(Math.max(0, 1 - (lungeT - 0.55) / 0.55), 1.5) : 0;
+          grabPose(byName.spine, 0, -0.20 * rear + 0.32 * go); grabPose(byName.chest, 0, -0.26 * rear + 0.38 * go);
+        }
+        if (tossT >= 0) { // coil back then FLING forward (wisp lob / spitter spit / caster volley)
+          const coil = tossT < 0.38 ? Math.min(1, tossT / 0.3) : 0;
+          const fling = tossT >= 0.38 ? Math.pow(Math.max(0, 1 - (tossT - 0.38) / 0.5), 1.4) : 0;
+          grabPose(byName.spine, 0, -0.12 * coil + 0.18 * fling); grabPose(byName.chest, 0, -0.20 * coil + 0.40 * fling);
+          grabPose(byName.head, 0, -0.30 * coil + 0.50 * fling);
+        }
+        if (view.model) view.model.scale.setScalar(1 + 0.30 * swellAmt); // bursar fuse swell (mirrors the in-game eased swell)
+        if (view.file === "santiago.glb") drivePlayerActions(t, byName); // swing / charge+release / spell + streak casts
         for (const b of view.bones) { // branch bones (wrists/tendrils/...): traveling follow-through, deeper = later phase
           if (b.name === "root" || b.name === "spine" || b.name === "chest" || b.name === "head") continue;
           if (b === skipB) continue; // user is rotate-dragging this one
@@ -870,7 +903,7 @@
           }
           if (b.userData.bipedDepth !== undefined) { // BIPED ZOMBIE GAIT (mirrors the game): lean checkbox = moving
             const bs = b.userData.bipedSide || 1;
-            const blp = ph * 1.7 * bipedRate() + (bs > 0 ? 0 : Math.PI);
+            const blp = (view.__sPh || 0) * 1.1 * bipedRate() + (bs > 0 ? 0 : Math.PI); // distance-locked sp*1.1 clock (mirrors the game's calibrated stride)
             const bstep = (0.15 + 0.85 * mv) * bipedAmp() * (view.anim.sway ? 1 : 0); // per-file legAmp (VIEW_BIPED)
             set(b, 0, 0, 0);
             if (b.userData.bipedDepth === 0) grabPose(b, 0, Math.sin(blp) * 0.32 * bstep);
@@ -948,6 +981,67 @@
         return 0.85;
       }
       const VIEW_STRIKE = { "ash_dead.glb": { env: biteEnv, base: 0.55 }, "ranged.glb": { env: castEnv, base: 0.45 } }; // per-file attack anim (mirrors the game's MOB_STRIKE + the ranged windup overlay)
+      // ---- one-shot ACTION buttons (Attacks panel): [action, label] per file ----
+      const ACT_DUR = { attack: 2.3, scratch: 1.4, lunge: 1.1, toss: 0.9, swell: 1.3, swing: 0.45, release: 0.6, spell: 1.1, streak: 1.5 };
+      const VIEW_ACTIONS = {
+        "santiago.glb": [["swing", "axe swing"], ["charge", "charge / release"], ["spell", "spell cast"], ["streak", "streak cast"]],
+        "ash_dead.glb": [["attack", "bite lunge"]], "ranged.glb": [["attack", "cast + fire"]],
+        "hugger.glb": [["attack", "grab pump"]], "stalker.glb": [["attack", "envelop"]],
+        "crawler.glb": [["scratch", "scratch flurry"]], "wisp.glb": [["toss", "toss"]],
+        "spitter.glb": [["toss", "spit"]], "bursar.glb": [["swell", "fuse swell"]],
+        "boss-warden.glb": [["toss", "rune volley"], ["lunge", "slam"]], "boss-conduit.glb": [["toss", "hex cast"]],
+        "boss-tyrant.glb": [["lunge", "lunge"]], "boss-alpha.glb": [["lunge", "pounce"]],
+        "boss-colossus.glb": [["lunge", "dash"], ["toss", "volley"]], "brute.glb": [["lunge", "charge"]],
+      };
+      function playAct(name) {
+        const now = performance.now() / 1000;
+        if (name === "charge") { // toggle: first press coils and HOLDS, second press releases into the lunge-swing
+          if (view.chargeHold) { view.chargeHold = false; view.act = { name: "release", t0: now }; }
+          else { view.chargeHold = true; view.__crV = 0; view.act = null; }
+          const cb = document.querySelector('[data-a="charge"]'); if (cb) cb.classList.toggle("on", view.chargeHold);
+          return;
+        }
+        view.act = { name, t0: now };
+      }
+      function swingCurveV(raw) { // mirrors the game's attackSwingCurve (anticipation coil -> SNAP -> follow-through)
+        raw = Math.max(0, Math.min(1, raw));
+        const eoc = (p) => 1 - Math.pow(1 - p, 3);
+        const eioc = (p) => (p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2);
+        if (raw < 0.15) return -0.14 * eoc(raw / 0.15);
+        if (raw < 0.42) return eoc((raw - 0.15) / 0.27) * 1.08;
+        return 1.08 * (1 - eioc((raw - 0.42) / 0.58));
+      }
+      function drivePlayerActions(t, byName) { // SANTIAGO previews: mirrors the game's updatePlayerBones overlays
+        const act = view.act, at = act ? (t - act.t0) * view.anim.speed : -1;
+        // charge HOLD: coil the axe up over the shoulder, ramping like game.chargeRatio
+        view.__crV = view.chargeHold ? Math.min(1, (view.__crV || 0) + 0.012 * view.anim.speed) : 0;
+        const cr = view.__crV;
+        let sw = 0, lunge = 0;
+        if (act && at >= 0) {
+          if (act.name === "swing") sw = swingCurveV(at / 0.32);
+          else if (act.name === "release") { sw = swingCurveV(at / 0.4); lunge = Math.pow(Math.max(0, 1 - at / 0.38), 1.6); }
+        }
+        grabPose(byName.spine, sw * 0.30 - cr * 0.22, 0.30 * lunge - 0.10 * cr);
+        grabPose(byName.chest, sw * 0.55 - cr * 0.34, 0.34 * lunge);
+        grabPose(byName.head, -sw * 0.35 + cr * 0.18, 0);
+        let castUp = 0, castSweep = 0, both = false;
+        if (act && at >= 0 && (act.name === "spell" || act.name === "streak")) {
+          both = act.name === "streak";
+          const dur = both ? 1.5 : 1.1, raise = Math.min(1, at / 0.35), drop = at > dur * 0.55 ? Math.pow(Math.max(0, 1 - (at - dur * 0.55) / (dur * 0.4)), 1.3) : 1;
+          castUp = raise * drop;
+          castSweep = at > dur * 0.5 ? Math.max(0, Math.sin(((at - dur * 0.5) / (dur * 0.45)) * Math.PI)) : 0;
+          grabPose(byName.chest, 0, -0.14 * castUp + 0.22 * castSweep * (both ? 1.4 : 1)); // rise back, then commit forward
+          grabPose(byName.head, 0, -0.20 * castUp + 0.15 * castSweep);
+        }
+        for (const b of view.bones) {
+          const ud = b.userData || {};
+          if (ud.armDepth === undefined) continue;
+          const side = ud.gSide || 1, axeArm = side < 0, k = ud.armDepth === 0 ? 1 : 1.35;
+          if (axeArm) grabPose(b, sw * 0.9 * k, -cr * (ud.armDepth === 0 ? 0.85 : 0.45) - sw * 0.25 * k + 0.15 * lunge, cr * 0.3);
+          else grabPose(b, -sw * 0.3, -castUp * (ud.armDepth === 0 ? 1.1 : 0.7) + castSweep * 0.9 + 0.10 * lunge, 0);
+          if (both && axeArm) grabPose(b, 0, -castUp * 0.9 + castSweep * 0.8, 0); // streak cast raises BOTH arms
+        }
+      }
       const _gq = new THREE.Quaternion(), _gAxis = new THREE.Vector3(0, 1, 0), _ID = new THREE.Quaternion();
       function grabPose(b, angY, angX, angZ) { // model-space rotations: Y = vertical sweep, X = fwd pitch, Z = roll about model-forward (leg lift)
         if (!b || !b.userData.gAxisY) return;

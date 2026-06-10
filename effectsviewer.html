@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Santiago's Wrath — Effects Viewer</title>
+    <style>
+      :root { --bg:#15171a; --panel:#1d2024; --line:#2d3137; --txt:#e8e4da; --dim:#8b9099; --gold:#f8bf48; --accent:#65d5ff; }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; background: var(--bg); color: var(--txt); font: 13px/1.4 ui-sans-serif, system-ui, -apple-system, sans-serif; }
+      #app { display: flex; height: 100vh; width: 100vw; }
+      #stage { flex: 1 1 auto; min-width: 0; position: relative; background: #000; }
+      #game { width: 100%; height: 100%; border: 0; display: block; }
+      #panel { flex: 0 0 360px; max-width: 42vw; height: 100%; overflow-y: auto; background: var(--panel); border-left: 1px solid var(--line); padding: 12px 12px 24px; }
+      h1 { font-size: 14px; margin: 2px 0 6px; letter-spacing: 0.3px; }
+      h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--dim); margin: 16px 0 6px; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
+      .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+      button { font: inherit; font-weight: 650; color: var(--txt); background: #262a30; border: 1px solid var(--line); border-radius: 7px; padding: 7px 9px; cursor: pointer; transition: transform 80ms ease, background 120ms ease; }
+      button:hover { background: #2f343b; } button:active { transform: scale(0.95); }
+      button.prime { background: var(--gold); color: #1a130a; border-color: var(--gold); }
+      button.ghost { background: transparent; }
+      button.looping { outline: 2px solid var(--accent); }
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+      .swatch { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: middle; box-shadow: 0 0 6px currentColor; }
+      label.opt { display: inline-flex; align-items: center; gap: 5px; color: var(--dim); font-size: 12px; }
+      input[type="number"] { width: 56px; } select, input[type="number"] { background: #262a30; border: 1px solid var(--line); color: var(--txt); border-radius: 6px; padding: 5px; font: inherit; }
+      .hint { font-size: 11px; color: var(--dim); margin: 4px 0 2px; }
+      #status { font-size: 11px; color: var(--dim); margin-bottom: 6px; }
+      .mini { font-size: 10px; color: var(--dim); font-weight: 500; }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div id="stage"><iframe id="game" src="./santiago-wrath.html" tabindex="-1"></iframe></div>
+      <div id="panel">
+        <h1>✨ Effects Viewer</h1>
+        <div id="status">Loading game…</div>
+        <div class="hint">Effects play at a point just in front of Santiago — move him to re-aim. Movement keys forward to the game.</div>
+        <div class="row">
+          <button id="restart" class="prime">Restart stage</button>
+          <label class="opt"><input id="loop" type="checkbox" /> Loop last</label>
+          <label class="opt">every <input id="loopms" type="number" min="200" max="5000" step="100" value="900" /> ms</label>
+        </div>
+        <div class="row" style="margin-top:6px">
+          <label class="opt">Dummies <input id="count" type="number" min="0" max="20" value="0" /></label>
+          <label class="opt"><input id="shake" type="checkbox" checked /> Screen shake</label>
+          <label class="opt"><input id="grade" type="checkbox" /> Cinematic look</label>
+        </div>
+
+        <div id="fxgroups"></div>
+
+        <h2>Elements (composed casts)</h2>
+        <div id="elements" class="grid"></div>
+        <h2>Combos</h2>
+        <div id="combos" class="grid"></div>
+        <h2>Kill-streak specials</h2>
+        <div id="streaks" class="grid"></div>
+      </div>
+    </div>
+
+    <script>
+      const frame = document.getElementById("game");
+      const $ = (id) => document.getElementById(id);
+      const statusEl = $("status");
+      let sb = null, fx = null, ready = false;
+      let lastPlay = null, loopTimer = 0, loopBtn = null;
+      const win = () => { try { return frame.contentWindow; } catch (e) { return null; } };
+      const hook = () => { try { return win().__SANTIAGO_WRATH__ || null; } catch (e) { return null; } };
+
+      function opts() {
+        return {
+          dummies: Math.max(0, Math.min(20, parseInt($("count").value, 10) || 0)),
+          invuln: true, ai: false, respawn: true, hp: false,
+          shake: $("shake").checked,
+          grade: $("grade").checked,
+          wave: 15,
+        };
+      }
+      function safe(fn) { try { fn(); } catch (e) { console.warn(e); statusEl.textContent = "⚠ " + e.message; } }
+
+      // ---- loop-last: re-fire the most recent effect on an interval (button outlined while looping) ----
+      function setLast(fn, btnEl) {
+        lastPlay = fn;
+        if (loopBtn) loopBtn.classList.remove("looping");
+        loopBtn = btnEl || null;
+        restartLoop();
+      }
+      function restartLoop() {
+        clearInterval(loopTimer); loopTimer = 0;
+        if (loopBtn) loopBtn.classList.toggle("looping", $("loop").checked);
+        if ($("loop").checked && lastPlay) loopTimer = setInterval(() => safe(lastPlay), Math.max(200, parseInt($("loopms").value, 10) || 900));
+      }
+      $("loop").addEventListener("change", restartLoop);
+      $("loopms").addEventListener("change", restartLoop);
+
+      function btn(label, color, onClick, sub) {
+        const b = document.createElement("button");
+        if (color != null) { const s = document.createElement("span"); s.className = "swatch"; s.style.color = "#" + color.toString(16).padStart(6, "0"); b.appendChild(s); }
+        b.appendChild(document.createTextNode(label));
+        if (sub) { const m = document.createElement("span"); m.className = "mini"; m.textContent = " " + sub; b.appendChild(m); }
+        b.addEventListener("click", () => { const fn = onClick; safe(fn); setLast(fn, b); });
+        return b;
+      }
+
+      function buildControls() {
+        // primitive effects, grouped (W.fx catalog)
+        const wrap = $("fxgroups"); wrap.innerHTML = "";
+        const list = fx.list();
+        const groups = [];
+        for (const f of list) if (!groups.includes(f.group)) groups.push(f.group);
+        for (const g of groups) {
+          const h = document.createElement("h2"); h.textContent = g; wrap.appendChild(h);
+          const grid = document.createElement("div"); grid.className = "grid"; wrap.appendChild(grid);
+          for (const f of list.filter((x) => x.group === g)) {
+            grid.appendChild(btn(f.label, null, () => fx.play(f.id), f.notes ? "ⓘ" : ""));
+            if (f.notes) grid.lastChild.title = f.notes;
+          }
+        }
+        // composed casts via the sandbox API (same as playtest)
+        const L = sb.lists();
+        const el = $("elements"); el.innerHTML = "";
+        L.elements.forEach((e) => el.appendChild(btn(e.label, e.color, () => sb.element(e.id))));
+        const co = $("combos"); co.innerHTML = "";
+        L.combos.forEach((c) => co.appendChild(btn(c.name, c.color, () => sb.combo(c.key))));
+        const st = $("streaks"); st.innerHTML = "";
+        L.streaks.forEach((s) => st.appendChild(btn(s.label, null, () => sb.streak(s.id), s.threshold ? "@" + s.threshold : "")));
+      }
+
+      // blur any panel button after click so Space/Q/E don't re-trigger it (they go to the game instead)
+      $("panel").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) b.blur(); });
+
+      ["shake", "grade"].forEach((id) => $(id).addEventListener("change", () => { if (sb) safe(() => sb.setOpts(opts())); }));
+      $("count").addEventListener("change", () => { if (sb) safe(() => { sb.setOpts(opts()); sb.respawnDummies(); }); });
+      $("restart").addEventListener("click", () => safe(() => sb.start(opts())));
+
+      // ---- forward movement / Q / E / Space to the game even when the panel has focus ----
+      function forwardKey(e) {
+        const t = e.target;
+        if (t && (t.tagName === "INPUT" || t.tagName === "SELECT" || t.tagName === "TEXTAREA")) return;
+        const w = win(); if (!w) return;
+        if (e.key === " " || e.key === "Spacebar" || e.key.indexOf("Arrow") === 0) e.preventDefault();
+        try { w.dispatchEvent(new w.KeyboardEvent(e.type, { key: e.key, code: e.code, keyCode: e.keyCode, which: e.which, bubbles: true, cancelable: true })); } catch (x) {}
+      }
+      document.addEventListener("keydown", forwardKey);
+      document.addEventListener("keyup", forwardKey);
+
+      function waitForApi() {
+        const h = hook();
+        if (h && h.sandbox && h.fx && h.game) {
+          sb = h.sandbox; fx = h.fx;
+          if (!ready) { ready = true; statusEl.textContent = "Effects API ready — " + fx.list().length + " primitives + casts."; buildControls(); safe(() => sb.start(opts())); }
+        } else { ready = false; sb = null; fx = null; statusEl.textContent = "Waiting for game to load…"; }
+        setTimeout(waitForApi, 400);
+      }
+      frame.addEventListener("load", () => { ready = false; sb = null; fx = null; clearInterval(loopTimer); });
+      waitForApi();
+    </script>
+  </body>
+</html>
