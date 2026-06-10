@@ -43,6 +43,7 @@
         </div>
         <div class="row" style="margin-top:6px">
           <label class="opt"><input id="studio" type="checkbox" checked /> Studio (dark stage + floor)</label>
+          <label class="opt"><input id="hitbox" type="checkbox" checked /> Hitbox ruler</label>
           <label class="opt">Dummies <input id="count" type="number" min="0" max="20" value="0" /></label>
           <label class="opt"><input id="shake" type="checkbox" checked /> Screen shake</label>
         </div>
@@ -131,6 +132,7 @@
 
       $("shake").addEventListener("change", () => { if (sb) safe(() => sb.setOpts(opts())); });
       $("studio").addEventListener("change", () => { if (fx) safe(() => fx.studio($("studio").checked)); });
+      $("hitbox").addEventListener("change", () => { if (fx) fx.hitboxes = $("hitbox").checked; });
       $("count").addEventListener("change", () => { if (sb) safe(() => { sb.setOpts(opts()); sb.respawnDummies(); }); });
       $("restart").addEventListener("click", () => safe(() => { sb.start(opts()); if ($("studio").checked) fx.studio(true); }));
 
@@ -149,7 +151,7 @@
         const h = hook();
         if (h && h.sandbox && h.fx && h.game) {
           sb = h.sandbox; fx = h.fx;
-          if (!ready) { ready = true; statusEl.textContent = "Effects API ready — " + fx.list().length + " primitives + casts."; buildControls(); safe(() => { sb.start(opts()); if ($("studio").checked) fx.studio(true); }); }
+          if (!ready) { ready = true; statusEl.textContent = "Effects API ready — " + fx.list().length + " primitives + casts."; buildControls(); safe(() => { sb.start(opts()); if ($("studio").checked) fx.studio(true); fx.hitboxes = $("hitbox").checked; }); }
         } else { ready = false; sb = null; fx = null; statusEl.textContent = "Waiting for game to load…"; }
         setTimeout(waitForApi, 400);
       }

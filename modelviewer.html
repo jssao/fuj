@@ -10,7 +10,7 @@
       #hint { position: fixed; right: 10px; top: 8px; color: #8b9099; font: 12px ui-monospace, Menlo, monospace; z-index: 5; pointer-events: none; }
       canvas.gl { display: block; cursor: grab; }
       canvas.gl.grabbing { cursor: grabbing; }
-      #ruler { position: fixed; inset: 0; z-index: 4; pointer-events: none; }
+      #ruler { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 4; pointer-events: none; } /* explicit size: inset alone leaves an SVG at its 300x150 intrinsic default, silently clipping everything outside it */
       /* ---- single-model view panel ---- */
       #panel { position: fixed; right: 0; top: 0; bottom: 0; width: 300px; z-index: 6; overflow-y: auto; display: none;
                background: rgba(24,27,31,0.93); border-left: 1px solid #2d3137; color: #e8e4da; font: 12px/1.45 ui-monospace, Menlo, monospace; padding: 10px 12px 24px; }
@@ -289,24 +289,51 @@
       const rulerSvg = document.getElementById("ruler");
       const _pv = new THREE.Vector3();
       function projectPx(x, y, z, cam) { _pv.set(x, y, z).project(cam); return [(_pv.x * 0.5 + 0.5) * innerWidth, (-_pv.y * 0.5 + 0.5) * innerHeight, _pv.z < 1]; }
+      const RULER_INK = "#cfe0f0", RULER_TXT = "#e6eefb", RULER_HALO = 'paint-order="stroke" stroke="#0c0f14" stroke-width="3"'; // bright ink + dark text halo: readable on any backdrop
+      function rulerText(x, y, str, anchor, size) {
+        return `<text x="${x}" y="${y}" fill="${RULER_TXT}" ${RULER_HALO} font-size="${size || 12}" font-weight="600" font-family="ui-monospace,Menlo,monospace" text-anchor="${anchor || "end"}">${str}</text>`;
+      }
       function rulerMarkup(worldX, baseY, maxH, cam, lbl) {
         const parts = [];
         const [bx, by, ok0] = projectPx(worldX, baseY, 0, cam);
         const [tx, ty, ok1] = projectPx(worldX, baseY + maxH, 0, cam);
         if (!ok0 || !ok1) return "";
-        parts.push(`<line x1="${bx}" y1="${by}" x2="${tx}" y2="${ty}" stroke="#7d8794" stroke-width="1.5"/>`);
+        parts.push(`<line x1="${bx}" y1="${by}" x2="${tx}" y2="${ty}" stroke="${RULER_INK}" stroke-width="2" opacity="0.9"/>`);
         for (let h = 0; h <= maxH + 1e-6; h += 0.1) {
           const major = Math.abs(h % 0.5) < 1e-6 || Math.abs((h % 0.5) - 0.5) < 1e-6;
           const [px, py] = projectPx(worldX, baseY + h, 0, cam);
-          const len = major ? 14 : 7;
-          parts.push(`<line x1="${px - len}" y1="${py}" x2="${px}" y2="${py}" stroke="#7d8794" stroke-width="${major ? 1.5 : 1}"/>`);
-          if (major) parts.push(`<text x="${px - len - 4}" y="${py + 3.5}" fill="#9aa3ad" font-size="10" font-family="ui-monospace,Menlo,monospace" text-anchor="end">${h.toFixed(1)}</text>`);
+          const len = major ? 16 : 8;
+          parts.push(`<line x1="${px - len}" y1="${py}" x2="${px}" y2="${py}" stroke="${RULER_INK}" stroke-width="${major ? 2 : 1.25}" opacity="${major ? 0.95 : 0.6}"/>`);
+          if (major) parts.push(rulerText(px - len - 5, py + 4, h.toFixed(1), "end"));
         }
-        if (lbl) parts.push(`<text x="${tx}" y="${ty - 8}" fill="#9aa3ad" font-size="10" font-family="ui-monospace,Menlo,monospace" text-anchor="middle">${lbl}</text>`);
+        if (lbl) parts.push(rulerText(tx, ty - 9, lbl, "middle"));
+        return parts.join("");
+      }
+      function groundRingMarkup(cam, maxR, step) { // unit labels for the GROUND RANGE RINGS (the rings themselves are 3D LineLoops)
+        const parts = [];
+        for (let r = step; r <= maxR + 1e-6; r += step) {
+          const major = Math.abs(r % 1) < 1e-6;
+          const [px, py, ok] = projectPx(r, 0.02, 0, cam);
+          if (ok && major) parts.push(rulerText(px, py - 5, r.toFixed(0) + "u", "middle", 12));
+        }
+        return parts.join("");
+      }
+      const DIM_RED = "#ff6a5a";
+      function dimGuideMarkup(cam) { // RED guides: the model's fitted HEIGHT on the vertical ruler + max WIDTH at the floor ring
+        if (!view.dims) return "";
+        const parts = [];
+        const [hx, hy, okH] = projectPx(view.rulerX || -1.55, view.dims.h, 0, cam);
+        if (okH) {
+          parts.push(`<line x1="${hx - 26}" y1="${hy}" x2="${hx + 10}" y2="${hy}" stroke="${DIM_RED}" stroke-width="2.5"/>`);
+          parts.push(`<text x="${hx + 14}" y="${hy + 4}" fill="${DIM_RED}" ${RULER_HALO} font-size="12" font-weight="700" font-family="ui-monospace,Menlo,monospace" text-anchor="start">h ${view.dims.h.toFixed(2)}u</text>`);
+        }
+        const [wx, wy, okW] = projectPx(view.dims.r * 0.7071, 0.02, view.dims.r * 0.7071, cam); // label on the red ring's 45deg point (clear of the unit labels on +X)
+        if (okW) parts.push(`<text x="${wx}" y="${wy - 5}" fill="${DIM_RED}" ${RULER_HALO} font-size="12" font-weight="700" font-family="ui-monospace,Menlo,monospace" text-anchor="middle">w ${(view.dims.r * 2).toFixed(2)}u</text>`);
         return parts.join("");
       }
       function drawGridRulers() {
-        const rx = -((8 - 1) / 2) * SPACING - SPACING * 0.5; // just left of each row, inside the framed gutter
+        const maxCols = Math.max(...ROWS.map((r) => r.length));
+        const rx = -((maxCols - 1) / 2) * SPACING - SPACING * 0.55; // just left of the WIDEST row, inside the framed gutter
         rulerSvg.innerHTML =
           rulerMarkup(rx, 0, 2.5, camera, "units") +
           rulerMarkup(rx, ROW_Y, 2.5, camera, "units");
@@ -329,11 +356,21 @@
       // Per-file leg-drive tune (mirrors the game's MOB_SWAY legAmp/legRate)
       const VIEW_LEGS = { "crawler.glb": { legAmp: 1.5, legRate: 1 }, "boss-tyrant.glb": { legAmp: 1.3, legRate: 0.55 }, "stalker.glb": { legAmp: 1.2, legRate: 1.0, gallop: true }, "spitter.glb": { legAmp: 1.05, legRate: 0.7 }, "boss-alpha.glb": { legAmp: 1.3, legRate: 0.78 } };
       const legTune = () => VIEW_LEGS[view.file] || { legAmp: 1, legRate: 1 };
-      const VIEW_BIPED = { "ash_dead.glb": 1.25, "ranged.glb": 1.1, "bursar.glb": 1.15, "bursar-popped.glb": 1.15, "shield.glb": 1.0, "shield-broken.glb": 1.0, "brute.glb": 1.3, "boss-warden.glb": 1.25, "boss-colossus.glb": 1.5 }; // biped legAmp per file (mirrors MOB_SWAY legAmp; default 1 like the game)
+      const VIEW_BIPED = { "ash_dead.glb": 1.25, "ranged.glb": 1.1, "bursar.glb": 1.15, "bursar-popped.glb": 1.15, "shield.glb": 1.0, "shield-broken.glb": 1.0, "brute.glb": 1.4, "boss-warden.glb": 1.25, "boss-colossus.glb": 1.5 }; // biped legAmp per file (mirrors MOB_SWAY legAmp; default 1 like the game)
       const bipedAmp = () => VIEW_BIPED[view.file] || 1;
-      const VIEW_BIPED_RATE = { "bursar.glb": 0.53, "bursar-popped.glb": 0.53, "shield.glb": 0.8, "brute.glb": 0.55, "boss-warden.glb": 0.5, "boss-colossus.glb": 0.9 }; // biped cadence per file (mirrors MOB_SWAY legRate)
+      const VIEW_BIPED_RATE = { "bursar.glb": 2.2, "bursar-popped.glb": 2.2, "shield.glb": 1.05, "shield-broken.glb": 1.05, "brute.glb": 1.45, "boss-warden.glb": 0.7, "boss-colossus.glb": 0.55 }; // biped STRIDE LENGTH per file (mirrors MOB_SWAY legRate; geometry-calibrated 2026-06-10: rate = pi/(5*1.1*reach))
       const bipedRate = () => VIEW_BIPED_RATE[view.file] || 1;
       const VIEW_FLOAT = { "wisp.glb": true, "boss-conduit.glb": true }; // floaters: hover + glide bank (mirrors MOB_SWAY float)
+      // TRUE gameplay heights (mirrors the game's MOB_GLB_H + PLAYER_GLB.targetH): single view scales the
+      // model to its REAL in-game size so the rulers/red guides measure gameplay truth; the camera then
+      // zooms proportionally so every mob still fills the frame the same.
+      const VIEW_GAME_H = {
+        "ash_dead.glb": 1.5, "crawler.glb": 1.0, "hugger.glb": 1.25, "ranged.glb": 1.6, "stalker.glb": 1.3,
+        "lurker.glb": 1.6, "brute.glb": 2.2, "wisp.glb": 1.5, "bursar.glb": 1.7, "bursar-popped.glb": 1.7,
+        "spitter.glb": 1.2, "shield.glb": 1.6, "shield-broken.glb": 1.6,
+        "boss-tyrant.glb": 3.5, "boss-warden.glb": 3.5, "boss-alpha.glb": 3.2, "boss-conduit.glb": 3.5, "boss-colossus.glb": 4.5,
+        "santiago.glb": 2.325,
+      };
       // Per-file FK pose defaults (the user's exported poses) — preloaded into view.pose so a reload
       // reproduces the authored pose. Mirrors the game's MOB_GRAB_POSE. Clear with "reset pose".
       const VIEW_GRAB_POSE = {
@@ -384,7 +421,8 @@
         if (SCALE[file]) { const s3 = SCALE[file]; root.scale.set(root.scale.x * s3[0], root.scale.y * s3[1], root.scale.z * s3[2]); }
         const box = new THREE.Box3().setFromObject(root), size = new THREE.Vector3(), center = new THREE.Vector3();
         box.getSize(size); box.getCenter(center);
-        const s = TARGET_H / (size.y || 1);
+        const gameH = VIEW_GAME_H[file] || TARGET_H;
+        const s = gameH / (size.y || 1); // TRUE gameplay scale (not the grid's uniform fit) -> rulers measure real in-game size
         root.position.set(-center.x, -center.y + size.y / 2, -center.z);
         applyFXFor(file, glowKey, root);
         view.mats = []; let verts = 0, tris = 0;
@@ -397,8 +435,31 @@
         const holder = new THREE.Group(); holder.add(inner); holder.rotation.y = FLIP[file] ? Math.PI : 0;
         view.scene.add(holder); view.model = holder;
         const wide = Math.max(size.x, size.z) * s; // wide/flat models (crawler) need a farther camera than tall ones
-        view.camera.position.set(0, TARGET_H * 0.75, Math.max(3.6, wide * 1.6 + 1.2));
-        view.controls.target.set(0, TARGET_H * 0.45, 0); view.controls.update();
+        // camera distance PROPORTIONAL to the true size -> every mob fills the frame roughly the same
+        view.camera.position.set(0, gameH * 0.75, Math.max(gameH * 1.85, wide * 1.6 + gameH * 0.45));
+        view.controls.target.set(0, gameH * 0.45, 0); view.controls.update();
+        // RED dimension guides: TRUE gameplay height (vertical ruler) + max-width ring on the floor
+        view.dims = { h: size.y * s, r: wide / 2 };
+        view.rulerX = -Math.max(wide * 0.62 + 0.35, gameH * 0.42); // ruler sits left of the model, scaled with it
+        view.rulerMax = Math.ceil((gameH + 0.4) * 2) / 2; // ruler reaches just past the head
+        view.ringMax = Math.max(3, Math.ceil((wide / 2 + 1.2) * 2) / 2); // rings cover the footprint + attack-range zone
+        const dpts = [];
+        for (let i = 0; i <= 64; i += 1) { const a2 = (i / 64) * Math.PI * 2; dpts.push(new THREE.Vector3(Math.cos(a2) * view.dims.r, 0.018, Math.sin(a2) * view.dims.r)); }
+        const dring = new THREE.Line(new THREE.BufferGeometry().setFromPoints(dpts),
+          new THREE.LineBasicMaterial({ color: 0xff5a4a, transparent: true, opacity: 0.9, depthWrite: false }));
+        dring.renderOrder = 3;
+        view.scene.add(dring);
+        // GROUND RANGE RULER: concentric unit rings (0.5u minor / 1u major), extent adapted to this model;
+        // unit-true = doubles as an attack-range reference (MOB_STRIKE distances are in these units)
+        for (let r = 0.5; r <= view.ringMax + 1e-6; r += 0.5) {
+          const major = Math.abs(r % 1) < 1e-6;
+          const pts = [];
+          for (let i = 0; i <= 64; i += 1) { const a2 = (i / 64) * Math.PI * 2; pts.push(new THREE.Vector3(Math.cos(a2) * r, 0.012, Math.sin(a2) * r)); }
+          const ring = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),
+            new THREE.LineBasicMaterial({ color: major ? 0x8fb4d8 : 0x4a5d72, transparent: true, opacity: major ? 0.8 : 0.45, depthWrite: false }));
+          ring.renderOrder = 2;
+          view.scene.add(ring);
+        }
         // bones -> rig-editor nodes (+ joint spheres). Parent = nearest Bone ancestor, so the
         // editor tree mirrors the loaded skeleton (chains AND branches).
         view.bones = []; root.traverse((o) => { if (o.isBone) view.bones.push(o); });
@@ -707,8 +768,12 @@
         const c = document.createElement("canvas"); c.width = c.height = 128;
         const g = c.getContext("2d");
         g.fillStyle = "#2a3038"; g.fillRect(0, 0, 128, 128);
-        g.strokeStyle = "#4a525e"; g.lineWidth = 6; g.strokeRect(3, 3, 122, 122);
-        g.fillStyle = "#cfd4cc"; g.font = "bold 30px monospace"; g.textAlign = "center"; g.textBaseline = "middle";
+        // zone separators (CAD-style): outer band = edge/corner picks, inner square = the pure face view
+        const z = (128 * (1 - 0.55)) / 2; // matches the 0.55 pick threshold in cubeClick
+        g.fillStyle = "#242a31"; g.fillRect(0, 0, 128, z); g.fillRect(0, 128 - z, 128, z); g.fillRect(0, 0, z, 128); g.fillRect(128 - z, 0, z, 128);
+        g.strokeStyle = "#4a525e"; g.lineWidth = 2; g.strokeRect(z, z, 128 - 2 * z, 128 - 2 * z);
+        g.strokeStyle = "#5a6470"; g.lineWidth = 6; g.strokeRect(3, 3, 122, 122);
+        g.fillStyle = "#e2e8f2"; g.font = "bold 28px monospace"; g.textAlign = "center"; g.textBaseline = "middle";
         g.fillText(text, 64, 64);
         return new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c) });
       }
@@ -735,16 +800,62 @@
         renderer.setViewport(0, 0, innerWidth, innerHeight);
         renderer.autoClear = true;
       }
-      function cubeClick(e) { // true if the click was inside the cube inset (and handled)
-        if (!view.on || !view.camera) return false;
+      const CUBE_H = 0.75, CUBE_T = 0.55; // half-size + zone threshold (matches the face-texture bands)
+      function cubeZoneAt(e) { // shared by click + hover: null = outside the inset, {dir} = the 26-direction pick (zero vector = ray missed the cube)
+        if (!view.on || !view.camera) return null;
         const [cx, cy] = cubeRect();
-        if (e.clientX < cx || e.clientX > cx + CUBE_S || e.clientY < cy || e.clientY > cy + CUBE_S) return false;
+        if (e.clientX < cx || e.clientX > cx + CUBE_S || e.clientY < cy || e.clientY > cy + CUBE_S) return null;
         ndc.set(((e.clientX - cx) / CUBE_S) * 2 - 1, -((e.clientY - cy) / CUBE_S) * 2 + 1);
         raycaster.setFromCamera(ndc, cubeCam);
         const hit = raycaster.intersectObject(cubeMesh, false)[0];
-        if (!hit || !hit.face) return true;
-        const n = hit.face.normal.clone(); // cube is axis-aligned -> face normal IS the world direction
-        if (Math.abs(n.y) > 0.9) { n.x = 0.02; n.z = 0.02; n.normalize(); } // dodge the gimbal pole on top/bottom
+        if (!hit || !hit.face) return { dir: new THREE.Vector3() };
+        const pt = hit.point;
+        const n = new THREE.Vector3(
+          Math.abs(pt.x / CUBE_H) > CUBE_T ? Math.sign(pt.x) : 0,
+          Math.abs(pt.y / CUBE_H) > CUBE_T ? Math.sign(pt.y) : 0,
+          Math.abs(pt.z / CUBE_H) > CUBE_T ? Math.sign(pt.z) : 0);
+        if (n.lengthSq() === 0) n.copy(hit.face.normal);
+        return { dir: n };
+      }
+      // ZONE HIGHLIGHT: glowing quads hover just off the faces showing exactly what a click will pick —
+      // 1 center square (face), 2 rectangles (edge), 3 corner squares (corner).
+      const cubeHi = [];
+      for (let i = 0; i < 3; i += 1) {
+        const q = new THREE.Mesh(new THREE.PlaneGeometry(1, 1),
+          new THREE.MeshBasicMaterial({ color: 0x65d5ff, transparent: true, opacity: 0.4, side: THREE.DoubleSide, depthWrite: false }));
+        q.renderOrder = 1; q.visible = false; cubeScene.add(q); cubeHi.push(q);
+      }
+      function updateCubeHighlight(dir) {
+        let qi = 0;
+        if (dir && dir.lengthSq() > 0) {
+          const axes = ["x", "y", "z"];
+          for (const fa of axes) {
+            if (dir[fa] === 0) continue; // one highlight quad per participating FACE
+            const q = cubeHi[qi++];
+            const others = axes.filter((o) => o !== fa);
+            const range = (o) => (dir[o] === 0 ? [-CUBE_T * CUBE_H, CUBE_T * CUBE_H] : dir[o] > 0 ? [CUBE_T * CUBE_H, CUBE_H] : [-CUBE_H, -CUBE_T * CUBE_H]);
+            const [a1, b1] = range(others[0]), [a2, b2] = range(others[1]);
+            const pos = { x: 0, y: 0, z: 0 };
+            pos[fa] = dir[fa] * (CUBE_H + 0.012);
+            pos[others[0]] = (a1 + b1) / 2;
+            pos[others[1]] = (a2 + b2) / 2;
+            q.position.set(pos.x, pos.y, pos.z);
+            q.rotation.set(0, 0, 0);
+            if (fa === "x") { q.rotation.y = Math.PI / 2; q.scale.set(Math.abs(b2 - a2), Math.abs(b1 - a1), 1); } // local X spans world Z, local Y spans world Y -> others = [y,z]
+            else if (fa === "y") { q.rotation.x = Math.PI / 2; q.scale.set(Math.abs(b1 - a1), Math.abs(b2 - a2), 1); } // others = [x,z]
+            else { q.scale.set(Math.abs(b1 - a1), Math.abs(b2 - a2), 1); } // z face: plane already in XY; others = [x,y]
+            q.visible = true;
+          }
+        }
+        for (; qi < 3; qi += 1) cubeHi[qi].visible = false;
+      }
+      function cubeClick(e) { // true if the click was inside the cube inset (and handled)
+        const zone = cubeZoneAt(e);
+        if (!zone) return false;
+        const n = zone.dir.clone();
+        if (n.lengthSq() === 0) return true; // inset click that missed the cube: swallow
+        if (n.x === 0 && n.z === 0 && n.y !== 0) n.z = 0.0015; // pure pole: deterministic +Z lean squares the roll -> TOP/BOT face text lands RIGHT-SIDE-UP, model perfectly lined up
+        n.normalize();
         const d = view.camera.position.distanceTo(view.controls.target);
         view.camera.position.copy(view.controls.target).addScaledVector(n, d);
         view.controls.update();
@@ -965,11 +1076,11 @@
         if (t < 0.95) { const q = (t - 0.68) / 0.27; return 1.35 - 0.35 * (q * q * (3 - 2 * q)); }
         return 1 + 0.16 * Math.sin((t - 0.95) * (Math.PI * 2 / 0.7));
       }
-      function biteEnv(t) { // mirrors the game's mobBiteEnv (ash-dead zombie): rear -> LUNGE past full reach -> recover, repeating
-        const T = 1.25, p = (t % T) / T;
-        if (p < 0.30) { const q = p / 0.30; return 1 - 0.45 * (q * q * (3 - 2 * q)); }
-        if (p < 0.42) { const q = (p - 0.30) / 0.12; return 0.55 + 0.95 * q * q * q; }
-        if (p < 0.70) { const q = (p - 0.42) / 0.28; return 1.5 - 0.5 * (q * q * (3 - 2 * q)); }
+      function biteEnv(t) { // mirrors the game's mobBiteEnv (ash-dead zombie): rear -> LUNGE past full reach -> recover, repeating (character pass 2026-06-10: heavier — 0.26s smoothstep lunge on a 1.7s cycle, was a 0.15s cubic snap every 1.25s)
+        const T = 1.7, p = (t % T) / T;
+        if (p < 0.32) { const q = p / 0.32; return 1 - 0.45 * (q * q * (3 - 2 * q)); }
+        if (p < 0.47) { const q = (p - 0.32) / 0.15; return 0.55 + 0.95 * q * q * (3 - 2 * q); }
+        if (p < 0.78) { const q = (p - 0.47) / 0.31; return 1.5 - 0.5 * (q * q * (3 - 2 * q)); }
         return 1;
       }
       function castEnv(t) { // mirrors the game's ranged CAST overlay: hold the 0.85 AIM through strafe/reload -> the 0.45s windup eases to 1.0 -> FIRE snaps 1.5 (slam -> head-whip + lean) -> recoil settles back onto the aim (free-running at the ~2.55s reload cadence; in game the snap is synced to the real fire frame)
@@ -1092,7 +1203,7 @@
 
       // ---- pointer: grid = click-to-inspect vs drag-to-rotate; view = joint pick/drag ----
       const raycaster = new THREE.Raycaster(), ndc = new THREE.Vector2();
-      let dragging = null, lastX = 0, downAt = 0, downXY = [0, 0];
+      let dragging = null, lastX = 0, downAt = 0, downXY = [0, 0], cubeDown = null;
       let dragSphere = null; const dragPlane = new THREE.Plane(), dragPoint = new THREE.Vector3();
       const cv = renderer.domElement;
       cv.addEventListener("pointerdown", (e) => {
@@ -1100,7 +1211,7 @@
         downAt = performance.now(); downXY = [e.clientX, e.clientY];
         if (view.on) {
           if (tc && (tc.dragging || tc.axis)) return; // gizmo owns this pointer interaction
-          if (cubeClick(e)) return; // view-cube face snap
+          if (cubeZoneAt(e)) { cubeDown = { x: e.clientX, y: e.clientY, t: performance.now() }; return; } // snap decided on pointerUP: a clean CLICK snaps, press-and-DRAG just orbits
           if (!view.nodes.length) return;
           raycaster.setFromCamera(ndc, view.camera);
           const hits = raycaster.intersectObjects(view.nodes.filter((n) => n.sphere.visible).map((n) => n.sphere), false);
@@ -1125,6 +1236,11 @@
           raycaster.setFromCamera(ndc, view.camera);
           if (raycaster.ray.intersectPlane(dragPlane, dragPoint)) dragSphere.position.copy(dragPoint);
         }
+        if (view.on && !dragging && !dragSphere && (!tc || !tc.dragging)) { // CUBE zone hover: light up what a click would pick
+          const z = cubeZoneAt(e);
+          updateCubeHighlight(z ? z.dir : null);
+          cv.style.cursor = z && z.dir.lengthSq() > 0 ? "pointer" : "";
+        }
       });
       window.addEventListener("pointerup", (e) => {
         if (dragging) {
@@ -1134,6 +1250,11 @@
           if (moved < 5 && quick && p.userData.file) enterView(p.userData.file, p.userData.lbl, p.userData.glowKey, p.userData.dir); // a CLICK, not a drag
         }
         if (dragSphere) { dragSphere = null; if (view.controls) view.controls.enabled = true; }
+        if (cubeDown) { // view cube: snap only on a clean click (press-drag = orbit, no snap)
+          const movedC = Math.hypot(e.clientX - cubeDown.x, e.clientY - cubeDown.y);
+          if (movedC < 5 && performance.now() - cubeDown.t < 400) cubeClick(e);
+          cubeDown = null;
+        }
       });
 
       addEventListener("resize", () => {
@@ -1151,7 +1272,7 @@
           syncJointGizmos();
           if (view.controls) view.controls.update();
           // single-view ruler: a live SVG ruler beside the model (re-projected as the camera orbits)
-          rulerSvg.innerHTML = rulerMarkup(-1.55, 0, 2.5, view.camera, "units");
+          rulerSvg.innerHTML = rulerMarkup(view.rulerX || -1.55, 0, view.rulerMax || 2.5, view.camera, "units") + groundRingMarkup(view.camera, view.ringMax || 3.0, 0.5) + dimGuideMarkup(view.camera);
         }
         composer.render();
         renderViewCube(); // inset, after the post chain so bloom doesn't touch it

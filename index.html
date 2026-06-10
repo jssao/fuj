@@ -2902,9 +2902,13 @@
         };
         SB.reset = function () { SB.respawnDummies(); SB.clearLog(); };
         SB.clearLog = function () { if (W.debug && W.debug.events) W.debug.events.length = 0; };
-        SB.element = function (id) { const e = ELEMENTS.find((x) => x.id === id); if (!e) return; game.unlocks = { spells: true, streaks: true, mix2: true, mix3: true }; renderSpecialBar({ instant: true }); SB._last = e.label; game.comboEls = {}; logCast("element", e.label, player.pos.clone(), e.radius); executeSpecial(Object.assign({}, e)); };
-        SB.streak = function (id) { const s = STREAK_SPECIALS.find((x) => x.id === id); if (!s) return; SB._last = s.label; logCast("streak", s.label, player.pos.clone(), s.radius); executeSpecial(Object.assign({}, s)); };
-        SB.combo = function (key) { const c = COMBO_TABLE[key]; if (!c) return; SB._last = c.name; logCast("combo", c.name, player.pos.clone(), 6); c.run(player.pos.clone()); };
+        // hitbox RULER (gated on W.fx.hitboxes, set by the effects viewer): per-element lives match the
+        // mechanic — fire's zone burns 3.6s, wind's whirlwind FOLLOWS the player 2s, the rest are instant
+        const HIT_LIFE = { fire: { life: 3.6 }, wind: { life: 2.0, follow: true }, water: { life: 1.2 }, lightning: { life: 1.2 } };
+        const hitRing = (r, cfg) => { try { if (W.fx && W.fx.hitboxes && r && typeof fxHitboxRing === "function") fxHitboxRing(player.pos.clone(), r, (cfg && cfg.life) || 1.2, cfg && cfg.follow); } catch (x) {} };
+        SB.element = function (id) { const e = ELEMENTS.find((x) => x.id === id); if (!e) return; game.unlocks = { spells: true, streaks: true, mix2: true, mix3: true }; renderSpecialBar({ instant: true }); SB._last = e.label; game.comboEls = {}; logCast("element", e.label, player.pos.clone(), e.radius); executeSpecial(Object.assign({}, e)); hitRing(e.radius, HIT_LIFE[e.id]); };
+        SB.streak = function (id) { const s = STREAK_SPECIALS.find((x) => x.id === id); if (!s) return; SB._last = s.label; logCast("streak", s.label, player.pos.clone(), s.radius); executeSpecial(Object.assign({}, s)); hitRing(s.radius); };
+        SB.combo = function (key) { const c = COMBO_TABLE[key]; if (!c) return; SB._last = c.name; logCast("combo", c.name, player.pos.clone(), 6); c.run(player.pos.clone()); hitRing(6); };
         SB.lists = function () {
           return {
             elements: ELEMENTS.map((e) => ({ id: e.id, label: e.label, color: e.color })),
@@ -2940,18 +2944,21 @@
           { id: "kid-impact", g: "Impact", label: "Kid impact", run: (P) => createKidImpact(P, P.clone().add(V(1, 0.5)), 0xf8bf48) },
           { id: "ring", g: "Telegraphs", label: "Ring pulse", run: (P) => createRing(P, 0xff7138, 2.2) },
           { id: "tell-ring", g: "Telegraphs", label: "Tell ring", run: (P) => createTellRing(P, 0xff5a3a, 2.5) },
-          { id: "tremor-disc", g: "Telegraphs", label: "Tremor disc", run: (P) => createTremorDisc(P, 1.8, 1.2) },
-          { id: "hex-sigil", g: "Telegraphs", label: "Hex sigil", run: (P) => createHexSigil(P, 1.7, 1.0) },
-          { id: "strike", g: "Telegraphs", label: "Scheduled strike", run: (P) => scheduleStrike(P, 0.8, 2.2, 24) },
-          { id: "meteor", g: "Telegraphs", label: "Meteor", run: (P) => spawnMeteor(P, 0.7, 2.0, 30) },
+          { id: "tremor-disc", g: "Telegraphs", label: "Tremor disc", run: (P) => createTremorDisc(P, 1.8, 1.2), r: 1.8, hitLife: 1.4 },
+          { id: "hex-sigil", g: "Telegraphs", label: "Hex sigil", run: (P) => createHexSigil(P, 1.7, 1.0), r: 1.7, hitLife: 1.2 },
+          { id: "strike", g: "Telegraphs", label: "Scheduled strike", run: (P) => scheduleStrike(P, 0.8, 2.2, 24), r: 2.2, hitLife: 1.0 },
+          { id: "meteor", g: "Telegraphs", label: "Meteor", run: (P) => spawnMeteor(P, 0.7, 2.0, 30), r: 2.0, hitLife: 0.9 },
           { id: "attack-arc", g: "Telegraphs", label: "Attack arc", run: (P) => createAttackArc(P, V(0, 1), 2.8, 0.85) },
           { id: "chain-sweep", g: "Telegraphs", label: "Chain sweep", run: (P) => createChainSweep(P, V(1, 0), 2.6, 0xff7138, true) },
           { id: "hex-beams", g: "Telegraphs", label: "Hex beams", run: (P) => spawnHexBeams({ pos: P.clone(), id: -1 }, 4, { angVel: 0.9, len: 7, hw: 0.45, life: 3.0, warmup: 0.6 }) },
-          { id: "fire-zone", g: "Zones", label: "Fire zone", run: (P) => createFireZone(P, 2.4) },
+          { id: "fire-zone", g: "Zones", label: "Fire zone", run: (P) => createFireZone(P, 2.4), r: 2.4, hitLife: 3.6 },
+          { id: "flame-ring-fb", g: "Zones", label: "Flame ring (painted)", run: (P) => createFlipbook("flame-ring", P, 5.0, 0xff8a30, { life: 3, frames: fxCell(3, 8), spin: 0.2 }), notes: "one random held cell per click (bright 3-8)" },
+          { id: "flame-disc-fb", g: "Zones", label: "Flame disc (painted)", run: (P) => createFlipbook("flame-disc", P, 5.0, 0xff5a14, { life: 3, frames: fxCell(0, 8), spin: 0.3 }), notes: "one random held cell per click" },
+          { id: "wind-spiral-fb", g: "Zones", label: "Wind spiral (painted)", run: (P) => createFlipbook("wind-spiral", P, 5.0, 0xc9f2d6, { life: 3, frames: fxCell(0, 8), spin: 2.6 }), notes: "one random held cell per click" },
           { id: "flame-burst", g: "Zones", label: "Flame burst", run: (P) => createFlameBurst(P, 3.0) },
           { id: "water-wave", g: "Zones", label: "Water wave", run: (P) => createWaterWave(P, 2.8) },
-          { id: "water-wave-zone", g: "Zones", label: "Water wave zone", run: (P) => createWaterWaveZone(P, 4.5, 0) },
-          { id: "wind-swirl", g: "Zones", label: "Wind swirl", run: (P) => createWindSwirl(P, 2.8) },
+          { id: "water-wave-zone", g: "Zones", label: "Water wave zone", run: (P) => createWaterWaveZone(P, 4.5, 0), r: 4.5, hitLife: 0.8 },
+          { id: "wind-swirl", g: "Zones", label: "Wind swirl", run: (P) => createWindSwirl(P, 2.8), r: 2.8, hitLife: 2.0 },
           { id: "slow-dome", g: "Zones", label: "Slow dome", run: (P) => createSlowDome(P, 3.0) },
           { id: "root-lines", g: "Zones", label: "Root lines", run: (P) => createRootLines(P, 2.6) },
           { id: "chain-net", g: "Zones", label: "Chain net", run: (P) => createChainNet(P, 2.4, 0xd4c1a1) },
@@ -3010,8 +3017,9 @@
           return !!game.fxStudio;
         }
         W.fx = {
+          hitboxes: false, // effects-viewer "Hitbox ruler" toggle: casts draw a measured ring at the true gameplay radius
           list: () => FX.map((f) => ({ id: f.id, group: f.g, label: f.label, notes: f.notes || "" })),
-          play: (id, dx, dy) => { const f = FX.find((x) => x.id === id); if (!f) return false; try { f.run(at(dx, dy)); } catch (e) { console.warn("fx:" + id, e); return false; } return true; },
+          play: (id, dx, dy) => { const f = FX.find((x) => x.id === id); if (!f) return false; const P = at(dx, dy); try { f.run(P); if (W.fx.hitboxes && f.r && typeof fxHitboxRing === "function") fxHitboxRing(P, f.r, f.hitLife || 1.2); } catch (e) { console.warn("fx:" + id, e); return false; } return true; },
           studio,
         };
       })();
@@ -4392,10 +4400,31 @@
             effect.mesh.material.opacity = Math.max(0, effect.life / effect.maxLife) * 0.95;
           } else if (effect.kind === "swingAxe") {
             updateSwingingAxe(effect);
+          } else if (effect.kind === "hitbox") { // effects-viewer hitbox ruler: rides the player when the spell does, holds then quick-fades
+            if (effect.follow && typeof player !== "undefined" && player && player.pos) effect.mesh.position.set(player.pos.x, player.pos.y, effect.mesh.position.z);
+            const hop = Math.min(1, Math.max(0, effect.life / 0.25));
+            effect.mesh.material.opacity = 0.95 * hop;
+            if (effect.mesh.children[0]) effect.mesh.children[0].material.opacity = 0.8 * hop;
+          } else if (effect.kind === "flipbook") { // painted atlas FX: HELD cell (unique per cast) or cycling, drift/grow, optional delay/fade-in, hold bright then fade at the end
+            if (effect.delay > 0) { effect.delay -= dt; effect.life += dt; effect.mesh.visible = false; } // wait invisibly (life refunded) — the cast pop leads, the flames follow
+            else {
+              effect.mesh.visible = true;
+              if (effect.follow && typeof player !== "undefined" && player && player.pos) effect.mesh.position.set(player.pos.x, player.pos.y, effect.mesh.position.z); // rides the player (wind whirlwind)
+              effect.t += dt;
+              const seq = effect.frames, n = seq ? seq.length : effect.cells;
+              const fi = seq ? seq[Math.floor(effect.t * effect.fps) % n] : Math.floor(effect.t * effect.fps) % n;
+              effect.tex.offset.set((fi % effect.cols) / effect.cols, 1 - (Math.floor(fi / effect.cols) + 1) / effect.rows);
+              if (effect.spin) effect.mesh.rotation.z += effect.spin * dt;
+              if (effect.grow) { const s = effect.mesh.scale.x + effect.grow * dt * (0.4 + 1.6 * Math.max(0, effect.life / effect.maxLife)); effect.mesh.scale.set(s, s, 1); } // same fast-bloom-then-settle ease as the old ring pop (the EXPLODE read)
+              const tail = Math.min(0.5, effect.maxLife);
+              const head = effect.fadeIn ? Math.min(1, (effect.maxLife - effect.life) / effect.fadeIn) : 1; // bloom IN
+              effect.mesh.material.opacity = effect.baseO * head * Math.min(1, Math.max(0, effect.life / tail));
+            }
           }
           if (effect.life <= 0) {
             groups.effects.remove(effect.mesh);
             disposeObject(effect.mesh);
+            if (effect.tex && effect.tex.dispose) effect.tex.dispose(); // flipbook texture CLONE owns its GL texture (disposeObject only frees geometry/material)
             if (effect.chain) {
               groups.effects.remove(effect.chain);
               disposeObject(effect.chain);
@@ -6575,20 +6604,20 @@
         default: { sway: 0.085, pitch: 0.055, lean: 0.20, flinch: 0.30 },
         basic: { sway: 0.13, pitch: 0.07, lean: 0.30, flinch: 0.34, legAmp: 1.25 }, // ash-dead ZOMBIE: heavy lurch over the biped legL/legR shuffle (legAmp scales stride + weight-shift; +25% user tune 2026-06-09), arms held forward (MOB_STRIKE.basic.base)
         wisp: { sway: 0.30, pitch: 0.07, lean: 0.10, flinch: 0.22, float: true }, // FLOATER, candle-flame read (user: more exaggerated): tip whips hard, body hovers, dangle-* legs trail
-        bursar: { sway: 0.10, pitch: 0.06, lean: 0.14, flinch: 0.32, legAmp: 1.2, legRate: 0.53 }, // DOPEY bomber +15% (user tune): slower waddle, bigger roll, bulb dome jiggles, flipper arms float
+        bursar: { sway: 0.10, pitch: 0.06, lean: 0.14, flinch: 0.32, legAmp: 1.2, legRate: 2.2 }, // DOPEY bomber +15% (user tune): rapid little WADDLE steps — hips only 0.34u up = 0.24u reach (legRate = stride length now; 0.53 implied 1.08u steps = a 4.5x slide), bulb dome jiggles, flipper arms float
         spitter: { sway: 0.03, pitch: 0.025, lean: 0.10, flinch: 0.26, legAmp: 1.05, legRate: 0.7 }, // TURTLE (user direction): slow deliberate sprawled steps, shell stays level — was a fast pulse over mis-weighted legs
-        shield: { sway: 0.04, pitch: 0.035, lean: 0.10, flinch: 0.18, legAmp: 1.0, legRate: 0.8, armFloat: 0.15 }, // Bulwark: braced march; grip arm damped to 15% so the hand-L SLAB stays planted (audit)
+        shield: { sway: 0.04, pitch: 0.035, lean: 0.10, flinch: 0.18, legAmp: 1.0, legRate: 1.05, armFloat: 0.15 }, // Bulwark: braced march, steps sized to its 0.54u reach (geometry calibration); grip arm damped to 15% so the hand-L SLAB stays planted (audit)
         lurker: { sway: 0.10, pitch: 0.04, lean: 0.06, flinch: 0.26, drape: true, fabAmp: 2.4 }, // HEAD-LED wraith: diamond pitches into the glide, the fab* cloak chains hang + float like gravity (drape blocks below; exaggeration pass 2026-06-09: fabAmp 1.9->2.4, head 0.38->0.48, trail +25%)
         hugger: { sway: 0.12, pitch: 0.05, lean: 0.22, flinch: 0.30 }, // exaggerated floaty arms ARE its locomotion read (mobs are never idle in play)
         stalker: { sway: 0.05, pitch: 0.04, lean: 0.20, flinch: 0.28, gallop: true, legRate: 1.0, legAmp: 1.2 }, // demon-ghost cheetah: claw-over-claw gallop + serpentine tail-* trail + bound lurch
         crawler: { sway: 0.04, pitch: 0.03, lean: 0.14, flinch: 0.24, legAmp: 1.5, scratch: true }, // level spider body — exaggerated leg-* gait + front-claw SCRATCH flurry in contact range
         ranged: { sway: 0.10, pitch: 0.05, lean: 0.22, flinch: 0.22, legAmp: 1.1 }, // SEIDR REVENANT: tall wraith on biped legL/legR root-trunks; casting armL levels at the player (MOB_STRIKE base + windup overlay), hanging chest.1 arm + halo ride the generic wave
-        brute: { sway: 0.055, pitch: 0.045, lean: 0.26, flinch: 0.20, legAmp: 1.3, legRate: 0.55 }, // LUMBERING gorilla: slow heavy biped stride, huge wrist/hand knuckle arms ride the float
-        "boss:tyrant": { sway: 0.045, pitch: 0.035, lean: 0.14, flinch: 0.14, legAmp: 1.3, legRate: 0.55 }, // 6-legged king: big SLOW deliberate strides (legRate scales the step clock)
-        "boss:warden": { sway: 0.045, pitch: 0.035, lean: 0.14, flinch: 0.14, legAmp: 1.25, legRate: 0.5 }, // HEAVYWEIGHT: ponderous wide-stance biped, big arm swings
-        "boss:alpha": { sway: 0.03, pitch: 0.03, lean: 0.22, flinch: 0.16, legAmp: 1.3, legRate: 0.78, headTrack: true }, // buff PITBULL (user: was jiggly): slower planted power-walk, stiff level body, head locked on the prey
+        brute: { sway: 0.055, pitch: 0.045, lean: 0.26, flinch: 0.20, legAmp: 1.4, legRate: 1.45, lungeSnap: 8 }, // LUMBERING gorilla: knuckle-walker proportions (hips 0.48u under a 2.2u body) — stride lengthened (legAmp 1.3->1.4) and sized to its ~0.40u reach (0.55 implied 1.04u steps = a 2.8x slide); huge wrist/hand knuckle arms ride the float; charge commit has mass (lungeSnap)
+        "boss:tyrant": { sway: 0.045, pitch: 0.035, lean: 0.14, flinch: 0.14, legAmp: 1.3, legRate: 0.55, lungeSnap: 7 }, // 6-legged king: big SLOW deliberate strides (legRate scales the step clock); fat-king dash commit rolls in heavy, not twitchy
+        "boss:warden": { sway: 0.045, pitch: 0.035, lean: 0.14, flinch: 0.14, legAmp: 1.25, legRate: 0.7, lungeSnap: 7 }, // HEAVYWEIGHT: ponderous wide-stance biped, big arm swings; stride trimmed to its real 0.81u reach (0.5 OVER-strode at 1.14u/step); heavy dash commit
+        "boss:alpha": { sway: 0.03, pitch: 0.03, lean: 0.22, flinch: 0.16, legAmp: 1.3, legRate: 0.78, headTrack: true, lungeSnap: 10 }, // buff PITBULL (user: was jiggly): slower planted power-walk, stiff level body, head locked on the prey; dash commit quick but not cheetah-twitch
         "boss:conduit": { sway: 0.05, pitch: 0.035, lean: 0.12, flinch: 0.14, float: true }, // FLOATER wraith: hovers + banks, cape-* chains ripple
-        "boss:colossus": { sway: 0.04, pitch: 0.03, lean: 0.18, flinch: 0.12, legAmp: 1.5, legRate: 0.9 }, // FREAK ATHLETE: giant strides at near-runner cadence — huge AND fast
+        "boss:colossus": { sway: 0.04, pitch: 0.03, lean: 0.18, flinch: 0.12, legAmp: 1.5, legRate: 0.55, lungeSnap: 9 }, // FREAK ATHLETE: genuinely GIANT 1.05u strides (hips 1.2u up; 0.9 had it mincing 0.63u steps) — huge AND fast; dash commit athletic but massive
       };
       // Per-type GLOW: drive emissive from the model's own baseColorTexture so the BRIGHT parts self-illuminate
       // (lurker diamond, wisp bulb, bursar dome) while the dark body stays dark; tint pushes the hue + it blooms.
@@ -6829,7 +6858,7 @@
         return b;
       }
       const MOB_GRAB_TUNE = { reach: 0.5, converge: -0.2, roll: -1.2 }; // user-tuned in the viewer (2026-06-09 hugger pose export); default for arm-chain types
-      const MOB_GRAB_TUNE_T = { basic: { reach: 0.55, converge: -0.05, roll: 0 }, ranged: { reach: 0.95, converge: 0, roll: 0 }, stalker: { reach: 0.5, converge: 0.4, roll: -0.5 } }; // per-type override: zombie arms thrust STRAIGHT forward; ranged = one long straight AIM; stalker = strong converge -> the arms WRAP around the victim (Dracula envelop)
+      const MOB_GRAB_TUNE_T = { basic: { reach: 0.55, converge: -0.05, roll: 0 }, ranged: { reach: 0.95, converge: 0, roll: 0 }, stalker: { reach: 0.5, converge: 0.4, roll: -0.5 }, "boss:tyrant": { reach: 0.7, converge: 0, roll: 0 }, "boss:warden": { reach: 0.7, converge: 0, roll: 0 }, "boss:alpha": { reach: 0.7, converge: 0, roll: 0 }, "boss:colossus": { reach: 0.7, converge: 0, roll: 0 } }; // per-type override: zombie arms thrust STRAIGHT forward; ranged = one long straight AIM; stalker = strong converge -> the arms WRAP around the victim (Dracula envelop); bosses = straight volley-cast raise (no hugger palm-twist default)
       // Per-type per-bone FK offsets (radians, from the viewer's "export pose" button) layered onto the
       // grab pose, blended by grab strength. Keyed by MOB_SWAY-style type key -> bone name -> {x,y,z}.
       const MOB_GRAB_POSE = {
@@ -6908,10 +6937,13 @@
       // BITE cycle (ash-dead zombie, repeats while in range): rear back as the arms sink toward the
       // walk pose -> LUNGE past full extension (overshoot -> slam pitch + head CHOMP) -> recover, again.
       function mobBiteEnv(t) {
-        const T = 1.25, p = (t % T) / T;
-        if (p < 0.30) { const q = p / 0.30; return 1 - 0.45 * (q * q * (3 - 2 * q)); }            // rear: sink to the arms-forward walk floor
-        if (p < 0.42) { const q = (p - 0.30) / 0.12; return 0.55 + 0.95 * q * q * q; }            // LUNGE: cubic snap to 1.5
-        if (p < 0.70) { const q = (p - 0.42) / 0.28; return 1.5 - 0.5 * (q * q * (3 - 2 * q)); }  // recover to the full reach
+        // character pass 2026-06-10: was a 0.15s snap repeating every 1.25s — machine-gun bites on the
+        // slowest shambler (and 2x faster than its real 0.6s touch bite). Slower, heavier: long rear,
+        // 0.26s committed lunge, slow climb out, cycle ~= the combat bite cadence.
+        const T = 1.7, p = (t % T) / T;
+        if (p < 0.32) { const q = p / 0.32; return 1 - 0.45 * (q * q * (3 - 2 * q)); }            // rear: sink to the arms-forward walk floor
+        if (p < 0.47) { const q = (p - 0.32) / 0.15; return 0.55 + 0.95 * q * q * (3 - 2 * q); }  // LUNGE: heavy smoothstep to 1.5 (0.26s — mass, not twitch)
+        if (p < 0.78) { const q = (p - 0.47) / 0.31; return 1.5 - 0.5 * (q * q * (3 - 2 * q)); }  // recover to the full reach
         return 1;
       }
       function mobEnvelopEnv(t) { // Dracula ENVELOP (stalker): arms + cloak flare GRAND-wide, then wrap shut around the victim, slow re-pump
@@ -6923,7 +6955,7 @@
       }
       const MOB_STRIKE = { // per-type attack ANIMATION (visual only — combat latch/hitboxes untouched): trigger distance, envelope, base = always-on arm-pose floor
         hugger: { dist: 2.4, env: mobStrikeEnv }, // flare open -> snap shut -> pump (2x the 1.2 combat latch)
-        stalker: { dist: 2.8, env: mobEnvelopEnv }, // Dracula: opens WIDE on the approach, cloaks the victim on contact
+        stalker: { dist: 1.6, env: mobEnvelopEnv }, // Dracula: cloaks the victim ON ARRIVAL (2.8 had it flaring mid-flank-weave every 2s; 1.6 = the pounce carries it in, THEN the wrap — the lunge reader owns the approach read)
         basic: { dist: 1.7, env: mobBiteEnv, base: 0.55 }, // zombie: walks arms-forward at the base floor, lunges for the bite in range
         ranged: { dist: 6.0, env: () => 0.85, base: 0.45 }, // revenant: casting armL LEVELS at the player across the 5.7 shooter standoff (constant aim, no cycle); the windup/fire snap is the overlay in updateMobModels (proximity clocks can't sync to the discrete fire)
       };
@@ -7095,7 +7127,14 @@
             const ph = _ts * 2.0 + (e.id || 0) * 1.3; // same phase as the breathe so they read as one motion
             const amp = 0.45 + 0.55 * e.__mvS; // mostly still when idle, full sway when moving
             const swy = Math.sin(ph) * amp, lg = Math.sin(ph - 0.5) * amp;
-            const fl = e.flash || 0; // 1 on hit, combat session decays it at 5/s
+            // FLINCH vs TELL split (character pass 2026-06-10): combat HOLDS flash=1 through attack windups
+            // (shooter windup, boss volley, charge/lunge tells, bursar fuse) — rendering that through the
+            // flinch channel posed every attacker in a maxed DAMAGE-RECOIL crouch (spine back, head down,
+            // shudder) right when it should read threatening. Gate the bone-flinch out during attack tells;
+            // the proper reads live elsewhere (lunge reader rear-back, cast/volley overlay below, fuse swell).
+            const tell = ((e.windup || 0) > 0 || (e.chargeTel || 0) > 0 || (e.lungeTel || 0) > 0 || (e.fuse || 0) > 0 || (e.charge || 0) > 0 || (e.lunge || 0) > 0) ? 1 : 0;
+            e.__tellS = (e.__tellS || 0) + (tell - (e.__tellS || 0)) * Math.min(1, dt * 8); // eased transition (no pose pop at tell start/end; the combat-side scale pop still marks mid-tell hits)
+            const fl = (e.flash || 0) * (1 - e.__tellS); // 1 on hit, combat session decays it at 5/s
             // Per-type ATTACK-ANIM gate (MOB_STRIKE; visual only — combat latch/hitboxes untouched), purely
             // on current proximity so the attack reads DURING the approach and winds down on escape
             // (the proximity wind-down prevents the old clinging-forever chase-cycling bug).
@@ -7108,20 +7147,27 @@
             const gPose = MOB_GRAB_POSE[sk]; // hand-tuned per-bone FK offsets from the viewer's "export pose"
             // SCRATCH flurry (cfg.scratch types, e.g. crawler): front leg-1 chains slash while in contact range
             e.__scrS = (e.__scrS || 0) + (((cfgS.scratch && !e.dead && e.pos && typeof player !== "undefined" && player && player.pos && e.pos.distanceTo(player.pos) < 1.2) ? 1 : 0) - (e.__scrS || 0)) * Math.min(1, dt * 8);
-            // RANGED CAST overlay: the proximity gate above can't see the shooter's discrete 0.45s windup,
-            // so read combat state directly (same read-only pattern as the boss LUNGE below). The windup
-            // RAISES the aim 0.85 -> 1.0 into the release; the actual fire frame (windup just hit 0 with
-            // the 2.1s+ reload set — a 0.3-0.7s cooldown means the out-of-range CANCEL, no snap) kicks a
-            // 1.5 overshoot -> the slam machinery supplies the head-whip + lean + arm down-thrust, then
-            // it decays back onto the constant-aim floor.
+            // ATTACK overlay (windup-synced; was ranged-only): the proximity gate above can't see discrete
+            // combat windups, so read them directly (same read-only pattern as the boss LUNGE below). The
+            // windup RAISES the pose toward 1.0 (revenant: casting-arm aim; spitter: spine/head crane —
+            // no arms, the g lean-in IS its read; bosses: volley arms raise via the grab CCD); the actual
+            // fire frame (windup just hit 0 with a real 2s+ reload set — a 0.3-0.7s cooldown means the
+            // out-of-range CANCEL, no snap) kicks a 1.5 overshoot -> the slam machinery supplies the
+            // head-whip/CHOMP (spitter's spit-snap) + lean + arm down-thrust, then it decays back down.
+            // WISP has no windup field at all — detect its fire on the cooldown-reset edge for a recoil bob.
             let gFin = gEff;
-            if (sk === "ranged" && !e.dead) {
+            const wuT = sk === "ranged" || sk === "spitter" ? 0.45 : 0.5; // shooter windup vs boss volley windup
+            if (!e.dead && (sk === "ranged" || sk === "spitter" || sk.indexOf("boss:") === 0)) {
               const wu = e.windup || 0;
-              if (wu > 0) gFin = Math.max(gFin, 1.0 - 0.15 * (wu / 0.45)); // charge: eases up from the 0.85 aim as the windup runs down
+              const aimF = stk && stk.base !== undefined ? 0.85 : 0.7; // revenant eases up from its aim; the rest rise from lower
+              if (wu > 0) gFin = Math.max(gFin, 1.0 - (1.0 - aimF) * Math.min(1, wu / wuT)); // charge: eases up as the windup runs down
               if ((e.__pwu || 0) > 0 && wu <= 0 && (e.cooldown || 0) > 1.5) e.__castK = 1; // FIRE frame
               e.__pwu = wu;
-              if ((e.__castK || 0) > 0.01) { gFin = Math.max(gFin, 1.0 + 0.5 * e.__castK); e.__castK *= Math.exp(-dt * 7); } // recoil spike 1.5 -> settle
+            } else if (sk === "wisp" && !e.dead) {
+              if (e.__pcd !== undefined && (e.cooldown || 0) > e.__pcd + 1.0) e.__castK = 1; // reload jumped UP = a rune just left
+              e.__pcd = e.cooldown || 0;
             }
+            if ((e.__castK || 0) > 0.01) { gFin = Math.max(gFin, 1.0 + 0.5 * e.__castK); e.__castK *= Math.exp(-dt * 7); } // recoil spike 1.5 -> settle
             e.__sPh = (e.__sPh || (e.id || 0) * 1.3) + mv * dt * 5.0; // DISTANCE-locked stride phase (rad per unit travelled): footfalls track real speed incl. slows/roots
             driveMobBones(e.mobBones, cfgS, swy, lg, e.__mvS, fl, ph, amp, gFin, gPose, e.__scrS, e.__sPh);
             if (e.mobBonesAlt) driveMobBones(e.mobBonesAlt, cfgS, swy, lg, e.__mvS, fl, ph, amp, gFin, gPose, e.__scrS, e.__sPh);
@@ -7129,7 +7175,7 @@
             // forward lean for the commit. Eases into the windup, SNAPS into the lunge. (audit: stalker's
             // pounce uses lunge/lungeTel, not the boss charge fields — both gate now.)
             const lgT = ((e.chargeTel || 0) > 0 || (e.lungeTel || 0) > 0) ? -1 : ((e.charge || 0) > 0 || (e.lunge || 0) > 0) ? 1 : 0;
-            e.__lgS = (e.__lgS || 0) + (lgT - (e.__lgS || 0)) * Math.min(1, dt * (lgT === 1 ? 14 : 5));
+            e.__lgS = (e.__lgS || 0) + (lgT - (e.__lgS || 0)) * Math.min(1, dt * (lgT === 1 ? (cfgS.lungeSnap || 14) : 5)); // commit snap is MASS-aware (cfg.lungeSnap; default 14 fits the light pouncers — 71ms to full lean had no weight on the fat king)
             if (e.mobBones && Math.abs(e.__lgS) > 0.01) {
               grabPoseMob(e.mobBones.spine, 0, 0.20 * e.__lgS);
               grabPoseMob(e.mobBones.chest, 0, 0.26 * e.__lgS);
@@ -11173,7 +11219,8 @@
       }
 
       function createFlameBurst(pos, radius) {
-        createRing(pos, 0xff6a1a, radius);
+        // the cast pop: a PAINTED ring (one random bright cell) expanding outward; procedural ring only as fallback
+        if (!createFlipbook("flame-ring", pos, 2.0, 0xff7138, { life: 0.62, frames: fxCell(3, 8), spin: 0.6, grow: radius * 1.6, z: 0.47 })) createRing(pos, 0xff6a1a, radius);
         for (let i = 0; i < 22; i += 1) {
           const mesh = new THREE.Mesh(
             SPARK_GEO,
@@ -11217,16 +11264,147 @@
       }
 
       function createWindSwirl(pos, radius) {
-        for (let i = 0; i < 16; i += 1) {
-          const a0 = (i / 16) * Math.PI * 2;
-          const a1 = a0 + 1.1;
-          const start = new THREE.Vector2(pos.x + Math.cos(a0) * radius * 0.3, pos.y + Math.sin(a0) * radius * 0.3);
-          const end = new THREE.Vector2(pos.x + Math.cos(a1) * radius, pos.y + Math.sin(a1) * radius);
-          createLineEffect(start, end, 0x9be3b0, 0.035, 0.42);
-        }
-        createRing(pos, 0x9be3b0, radius);
+        // PAINTED, fully (user notes: the old line-arc streaks are OUT, spin flipped, and the AoE must
+        // read for the WHOLE spell): the wind frenzy follows Santiago for 2s, so the smoky spiral AND a
+        // held aura ring at the frenzy radius ride him (follow) for the full 2s — the ring IS the AoE
+        // read. The cast pop still explodes outward one-shot at the cast point. Plain ring = fallback.
+        const pr = createFlipbook("flame-ring", pos, 2.2, 0x9be3b0, { life: 0.55, frames: fxCell(3, 8), spin: 1.2, grow: radius * 1.5, z: 0.47 });
+        createFlipbook("wind-spiral", pos, radius * 1.9, 0xc9f2d6, { life: 2.0, frames: fxCell(0, 8), spin: 2.6, z: 0.45, opacity: 0.9, delay: 0.1, fadeIn: 0.18, follow: true });
+        createFlipbook("flame-ring", pos, radius * 3.1, 0x9be3b0, { life: 2.0, frames: fxCell(3, 8), spin: 0.4, z: 0.46, opacity: 0.75, delay: 0.28, fadeIn: 0.25, follow: true });
+        if (!pr) createRing(pos, 0x9be3b0, radius);
       }
 
+      // ---- FLIPBOOK FX: grayscale atlas sheets (game/fx/*.png, baked by dev/fx/make-atlas.py from the
+      // user's B&W MidJourney sprite grids) cycled like a flipbook + TINTED per element — one atlas
+      // serves fire/water/lightning recolors. Cells are luminance-ordered dim->bright, so frame RANGES
+      // pick the read (0-2 wispy embers, 3-8 full burn). Missing/unloaded texture -> the caller's
+      // procedural visuals simply stand alone (same graceful-fallback contract as the GLB models).
+      const FX_ATLAS = { "flame-ring": { cells: 9, cols: 3 }, "flame-disc": { cells: 9, cols: 3 }, "wind-spiral": { cells: 9, cols: 3 } };
+      const _fxTexCache = {};
+      // CODE-PAINTED flame atlas (user direction 2026-06-10: the photoreal image sheets are out — paint the
+      // style in code, lighter than shipping images): 3x3 cells of STYLIZED grayscale flames baked onto a
+      // canvas once at boot. Wobbly multi-sine outlines, tapered quadratic flame licks, carved swirl churn
+      // (discs); cells run dim->bright so fxCell ranges keep their meaning (0-2 wisps, 3-8 full burn).
+      // Same tint/held-variant pipeline as before; render cost identical (one tinted quad), zero downloads.
+      function bakeFlameAtlas(kind) {
+        const C = 256, N = 3, cv = document.createElement("canvas");
+        cv.width = cv.height = C * N;
+        const g = cv.getContext && cv.getContext("2d"); if (!g) return null;
+        let s = kind === "flame-ring" ? 1337 : kind === "wind-spiral" ? 9001 : 4242;
+        const rnd = () => { s = (s * 16807) % 2147483647; return s / 2147483647; };
+        for (let i = 0; i < 9; i += 1) {
+          const cx = (i % N) * C + C / 2, cy = ((i / N) | 0) * C + C / 2;
+          const inten = 0.35 + 0.65 * (i / 8), R = C * 0.3;
+          const ph = [rnd() * 6.28, rnd() * 6.28, rnd() * 6.28], am = [0.05 + rnd() * 0.05, 0.03 + rnd() * 0.04, 0.015 + rnd() * 0.03];
+          const wob = (a) => 1 + am[0] * Math.sin(2 * a + ph[0]) + am[1] * Math.sin(3 * a + ph[1]) + am[2] * Math.sin(5 * a + ph[2]);
+          const outline = (rr) => { g.beginPath(); for (let k = 0; k <= 72; k += 1) { const a = (k / 72) * Math.PI * 2, r = rr * wob(a); const x = cx + Math.cos(a) * r, y = cy + Math.sin(a) * r; if (k) g.lineTo(x, y); else g.moveTo(x, y); } g.closePath(); };
+          if (kind === "flame-ring") {
+            for (const wa of [[C * 0.105, 0.22], [C * 0.055, 0.5], [C * 0.026, 1.0]]) { // soft halo -> hot core
+              outline(R); g.strokeStyle = `rgba(255,255,255,${wa[1] * inten})`; g.lineWidth = wa[0]; g.lineJoin = "round"; g.stroke();
+            }
+          } else if (kind === "wind-spiral") {
+            // smoky VORTEX: bright core + 2-3 log-spiral arms (layered halo->filament strokes tapering
+            // outward) + wisps shedding off. CONSTANT chirality (arms open counterclockwise) so runtime
+            // can spin CLOCKWISE and the tips always TRAIL like the reference.
+            const core = g.createRadialGradient(cx, cy, 0, cx, cy, R * 0.32);
+            core.addColorStop(0, `rgba(255,255,255,${0.95 * inten})`); core.addColorStop(1, "rgba(255,255,255,0)");
+            g.fillStyle = core; g.beginPath(); g.arc(cx, cy, R * 0.32, 0, 6.3); g.fill();
+            const arms = 2 + ((rnd() * 2) | 0);
+            for (let A = 0; A < arms; A += 1) {
+              const a0 = (A / arms) * Math.PI * 2 + rnd() * 0.5, sweep = (1.5 + rnd() * 0.5) * Math.PI;
+              const pt = (t) => { const th = a0 + sweep * Math.pow(t, 0.62), r = R * (0.10 + 0.95 * t); return [cx + Math.cos(th) * r, cy + Math.sin(th) * r]; };
+              for (const lay of [[3.2, 0.14], [1.6, 0.3], [0.7, 0.55]]) { // smoke halo -> bright filament
+                for (let k = 0; k < 34; k += 1) {
+                  const [x0, y0] = pt(k / 34), [x1, y1] = pt((k + 1) / 34);
+                  g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1);
+                  g.strokeStyle = `rgba(255,255,255,${lay[1] * inten * (1 - 0.65 * (k / 34))})`;
+                  g.lineWidth = Math.max(0.6, C * 0.012 * lay[0] * (1 - 0.55 * (k / 34)));
+                  g.lineCap = "round"; g.stroke();
+                }
+              }
+              for (let Wp = 0; Wp < 6; Wp += 1) { // smoky wisps shedding off the arm
+                const t = 0.25 + rnd() * 0.7, [x0, y0] = pt(t);
+                const wa2 = a0 + sweep * Math.pow(t, 0.62) + Math.PI / 2 + (rnd() - 0.5) * 0.8, wl = C * (0.03 + rnd() * 0.06);
+                g.beginPath(); g.moveTo(x0, y0);
+                g.quadraticCurveTo(x0 + Math.cos(wa2) * wl * 0.6, y0 + Math.sin(wa2) * wl * 0.6, x0 + Math.cos(wa2 + 0.5) * wl, y0 + Math.sin(wa2 + 0.5) * wl);
+                g.strokeStyle = `rgba(255,255,255,${(0.10 + rnd() * 0.16) * inten})`; g.lineWidth = C * (0.006 + rnd() * 0.01); g.lineCap = "round"; g.stroke();
+              }
+            }
+          } else {
+            const grad = g.createRadialGradient(cx, cy, 0, cx, cy, R * 1.15);
+            grad.addColorStop(0, `rgba(255,255,255,${inten})`); grad.addColorStop(0.55, `rgba(255,255,255,${0.7 * inten})`); grad.addColorStop(1, "rgba(255,255,255,0)");
+            outline(R * 1.12); g.fillStyle = grad; g.fill();
+            for (let c = 0; c < 7; c += 1) { // carve swirl arcs out of the fill = the churn read
+              g.globalCompositeOperation = "destination-out";
+              g.beginPath(); g.arc(cx + (rnd() - 0.5) * R * 0.5, cy + (rnd() - 0.5) * R * 0.5, R * (0.2 + rnd() * 0.6), rnd() * 6.28, rnd() * 6.28 + 1 + rnd() * 2.5);
+              g.strokeStyle = `rgba(0,0,0,${0.3 + rnd() * 0.35})`; g.lineWidth = C * (0.018 + rnd() * 0.03); g.lineCap = "round"; g.stroke();
+              g.globalCompositeOperation = "source-over";
+            }
+          }
+          // flame TONGUES: filled tapered teardrops — wide where they MERGE into the body (base tucked
+          // inside the edge), narrowing to a curled point (user: thin whisker strokes read as tendrils).
+          // Spirals skip them — their wisps are the flavor.
+          const licks = kind === "wind-spiral" ? 0 : (kind === "flame-ring" ? 7 : 5) + ((rnd() * 4) | 0);
+          for (let L = 0; L < licks; L += 1) {
+            const a = rnd() * Math.PI * 2;
+            const r0 = (kind === "flame-ring" ? R * wob(a) : R * (0.72 + rnd() * 0.3)) - C * 0.025; // base sunk into the body
+            const len = C * (0.07 + rnd() * 0.10) * (0.5 + inten * 0.8), curl = (rnd() - 0.5) * 0.7;
+            const halfW = C * (0.020 + rnd() * 0.024); // chunky base
+            const ta = -Math.sin(a), tb = Math.cos(a); // tangent (width direction)
+            const bx = cx + Math.cos(a) * r0, by = cy + Math.sin(a) * r0;
+            const mx = cx + Math.cos(a + curl * 0.12) * (r0 + len * 0.5), my = cy + Math.sin(a + curl * 0.12) * (r0 + len * 0.5);
+            const tx = cx + Math.cos(a + curl * 0.32) * (r0 + len), ty = cy + Math.sin(a + curl * 0.32) * (r0 + len);
+            g.beginPath();
+            g.moveTo(bx + ta * halfW, by + tb * halfW);
+            g.quadraticCurveTo(mx + ta * halfW * 0.4, my + tb * halfW * 0.4, tx, ty); // out one flank to the point
+            g.quadraticCurveTo(mx - ta * halfW * 0.4, my - tb * halfW * 0.4, bx - ta * halfW, by - tb * halfW); // back down the other
+            g.closePath();
+            g.fillStyle = `rgba(255,255,255,${(0.4 + rnd() * 0.4) * inten})`;
+            g.fill();
+          }
+        }
+        const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; return t;
+      }
+      function fxAtlasTex(name) {
+        if (name in _fxTexCache) return _fxTexCache[name];
+        try { _fxTexCache[name] = bakeFlameAtlas(name); } catch (e) { _fxTexCache[name] = null; } // null -> callers' procedural fallback
+        return _fxTexCache[name];
+      }
+      for (const k in FX_ATLAS) fxAtlasTex(k); // bake at boot (sync, ~ms) so no cast ever pays it
+      function createFlipbook(name, pos, size, color, o) {
+        const base = fxAtlasTex(name); if (!base || !base.clone) return null;
+        o = o || {};
+        const a = FX_ATLAS[name], rows = Math.ceil(a.cells / a.cols);
+        const tex = base.clone(); tex.needsUpdate = true; // clone shares the image but owns offset/GL state (disposed with the effect)
+        tex.repeat.set(1 / a.cols, 1 / rows);
+        const op = o.opacity === undefined ? 1 : o.opacity;
+        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(size, size),
+          new THREE.MeshBasicMaterial({ map: tex, color, transparent: true, opacity: op, blending: THREE.AdditiveBlending, depthWrite: false }));
+        mesh.position.set(pos.x, pos.y, o.z === undefined ? 0.45 : o.z);
+        mesh.rotation.z = Math.random() * Math.PI * 2;
+        groups.effects.add(mesh);
+        const life = o.life === undefined ? 1 : o.life;
+        if (o.delay) mesh.visible = false; // stays hidden until the delay elapses (the cast pop leads)
+        const fb = { kind: "flipbook", mesh, tex, cells: a.cells, cols: a.cols, rows, fps: o.fps || 10, spin: o.spin || 0, grow: o.grow || 0, delay: o.delay || 0, fadeIn: o.fadeIn || 0, follow: !!o.follow, t: Math.random() * 9, frames: o.frames || null, life, maxLife: life, baseO: op };
+        game.effects.push(fb);
+        return fb;
+      }
+      const fxCell = (lo, hi) => [lo + ((Math.random() * (hi - lo + 1)) | 0)]; // ONE random atlas cell, held -> unique per cast (user direction: variation, not animation)
+      // HITBOX RULER (effects-viewer debug, gated on W.fx.hitboxes): a crisp ring at the EXACT gameplay
+      // radius + 30-degree ticks + a unit label — the ground twin of the model viewer's red dim guides.
+      function fxHitboxRing(pos, r, life, follow) {
+        if (!r || typeof THREE.Line !== "function") return;
+        const pts = [];
+        for (let k = 0; k <= 96; k += 1) { const a = (k / 96) * Math.PI * 2; pts.push(new THREE.Vector3(Math.cos(a) * r, Math.sin(a) * r, 0)); }
+        const ring = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0xff6a5a, transparent: true, opacity: 0.95, depthWrite: false }));
+        const tp = [];
+        for (let k = 0; k < 12; k += 1) { const a = (k / 12) * Math.PI * 2, M = k % 3 === 0 ? 0.22 : 0.11; tp.push(new THREE.Vector3(Math.cos(a) * (r - M), Math.sin(a) * (r - M), 0), new THREE.Vector3(Math.cos(a) * (r + M), Math.sin(a) * (r + M), 0)); }
+        ring.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(tp), new THREE.LineBasicMaterial({ color: 0xff6a5a, transparent: true, opacity: 0.8, depthWrite: false })));
+        ring.position.set(pos.x, pos.y, 0.56);
+        groups.effects.add(ring);
+        game.effects.push({ kind: "hitbox", mesh: ring, life: life || 1.2, maxLife: life || 1.2, follow: !!follow, protected: true });
+        if (!follow && typeof spawnFloater === "function") spawnFloater(new THREE.Vector2(pos.x + r * 0.7071, pos.y + r * 0.7071), r.toFixed(1) + "u", { color: 0xff6a5a, size: 13, life: Math.min(life || 1.2, 2.5), rise: 0 });
+      }
       function createFireZone(pos, radius) {
         const mesh = new THREE.Mesh(
           new THREE.CircleGeometry(radius, 24),
@@ -11243,6 +11421,13 @@
         game.zones.push({ kind: "fire", pos: pos.clone(), radius, life: 3.6, maxLife: 3.6, mesh, tick: 0 });
         flashFxLight(pos, 0xff6a1a, 8, 1.4); // the inferno casts firelight
         createFlameBurst(pos, radius);
+        // PAINTED FLAMES (the user's sheets), each layer a HELD random cell = every cast a unique painting
+        // (user direction: variation, NOT flip-animation; slow drift-spin only). Filled core + counter-
+        // spinning white-hot heart + the painted aura ring; the flat circle above stays as under-glow/fallback.
+        // SEQUENCED behind the burst (user: the pop leads): flames bloom in 0.18s later while the ring is still exploding
+        createFlipbook("flame-disc", pos, radius * 2.3, 0xff5a14, { life: 3.6, frames: fxCell(0, 8), spin: 0.3, z: 0.42, opacity: 0.9, delay: 0.18, fadeIn: 0.3 });
+        createFlipbook("flame-disc", pos, radius * 1.5, 0xffc878, { life: 3.6, frames: fxCell(0, 8), spin: -0.5, z: 0.44, opacity: 0.8, delay: 0.26, fadeIn: 0.3 });
+        createFlipbook("flame-ring", pos, radius * 2.75, 0xff8a30, { life: 3.6, frames: fxCell(3, 8), spin: 0.15, z: 0.46, delay: 0.18, fadeIn: 0.35 });
       }
 
       function createWaterWaveZone(pos, maxRadius, damage) {
