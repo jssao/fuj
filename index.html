@@ -2955,6 +2955,8 @@
           { id: "flame-ring-fb", g: "Zones", label: "Flame ring (painted)", run: (P) => createFlipbook("flame-ring", P, 5.0, 0xff8a30, { life: 3, frames: fxCell(3, 8), spin: 0.2 }), notes: "one random held cell per click (bright 3-8)" },
           { id: "flame-disc-fb", g: "Zones", label: "Flame disc (painted)", run: (P) => createFlipbook("flame-disc", P, 5.0, 0xff5a14, { life: 3, frames: fxCell(0, 8), spin: 0.3 }), notes: "one random held cell per click" },
           { id: "wind-spiral-fb", g: "Zones", label: "Wind spiral (painted)", run: (P) => createFlipbook("wind-spiral", P, 5.0, 0xc9f2d6, { life: 3, frames: fxCell(0, 8), spin: 2.6 }), notes: "one random held cell per click" },
+          { id: "water-foam-fb", g: "Zones", label: "Water foam (painted)", run: (P) => createFlipbook("water-foam", P, 5.0, 0x9fd8ff, { life: 3, frames: fxCell(0, 8), spin: 0.4 }), notes: "one random held cell per click" },
+          { id: "fire-ember-fb", g: "Zones", label: "Fire ember bed (painted)", run: (P) => createFlipbook("fire-ember", P, 5.0, 0xff7a28, { life: 3, frames: fxCell(0, 8), spin: 0.06, flicker: 0.35 }), notes: "one random held cell per click" },
           { id: "flame-burst", g: "Zones", label: "Flame burst", run: (P) => createFlameBurst(P, 3.0) },
           { id: "water-wave", g: "Zones", label: "Water wave", run: (P) => createWaterWave(P, 2.8) },
           { id: "water-wave-zone", g: "Zones", label: "Water wave zone", run: (P) => createWaterWaveZone(P, 4.5, 0), r: 4.5, hitLife: 0.8 },
@@ -3071,7 +3073,8 @@
             const pull = player.pos.clone().sub(pk.pos);
             if (pull.length() < r * 1.4) pk.pos.addScaledVector(pull.normalize(), 6 * dt);
           }
-          if (Math.random() < dt * 6) createWindSwirl(player.pos.clone(), r * 0.7);
+          // (No per-frame respawn — that stacked ~6 swirls/sec into the additive white-out. The single
+          // dust-vortex spawned at cast follows the player for the whole 2s frenzy; see createWindSwirl.)
         }
         // SPRINT phase-dash: shell pulses + expires (3x speed in updatePlayer, insta-kill in contact).
         if (game.phaseDash > 0) {
@@ -4418,7 +4421,39 @@
               if (effect.grow) { const s = effect.mesh.scale.x + effect.grow * dt * (0.4 + 1.6 * Math.max(0, effect.life / effect.maxLife)); effect.mesh.scale.set(s, s, 1); } // same fast-bloom-then-settle ease as the old ring pop (the EXPLODE read)
               const tail = Math.min(0.5, effect.maxLife);
               const head = effect.fadeIn ? Math.min(1, (effect.maxLife - effect.life) / effect.fadeIn) : 1; // bloom IN
-              effect.mesh.material.opacity = effect.baseO * head * Math.min(1, Math.max(0, effect.life / tail));
+              const flk = effect.flicker ? 1 - effect.flicker * (0.5 + 0.5 * Math.sin(performance.now() * 0.013 + effect.t * 7)) : 1; // ember pulse
+              effect.mesh.material.opacity = effect.baseO * head * flk * Math.min(1, Math.max(0, effect.life / tail));
+            }
+          } else if (effect.kind === "winddisc") { // faint dust footprint: follows the player, blooms in, holds, fades
+            if (typeof player !== "undefined" && player && player.pos) effect.mesh.position.set(player.pos.x, player.pos.y, effect.mesh.position.z);
+            const bloom = Math.min(1, (effect.maxLife - effect.life) / 0.18), out = Math.min(1, effect.life / 0.4);
+            effect.mesh.material.opacity = effect.discBase * Math.min(bloom, out);
+            const ds = 0.7 + 0.3 * bloom; effect.mesh.scale.set(ds, ds, 1);
+          } else if (effect.kind === "windvortex") { // dust/vapor points whirling up a narrowing spiral funnel, recycling
+            effect.t += dt;
+            if (typeof player !== "undefined" && player && player.pos) effect.mesh.position.set(player.pos.x, player.pos.y, 0);
+            const P = effect.p, posAttr = effect.mesh.geometry.attributes.position, alpAttr = effect.mesh.geometry.attributes.aAlpha;
+            const arr = posAttr.array, alr = alpAttr.array;
+            for (let k = 0; k < P.n; k += 1) {
+              const p = (P.ph[k] + effect.t * P.rr[k]) % 1;       // rising progress, wraps -> recycles at the base
+              const rMul = 0.35 + 0.65 * (1 - p);                  // funnel: full width at base -> 35% at the top
+              const ang = P.arm[k] + P.a0[k] + p * P.wrap - effect.t * P.spin; // arm twist with height + whole-vortex whirl
+              const rad = P.base * P.r0[k] * rMul + Math.sin(effect.t * 2 + P.wob[k]) * 0.12;
+              const j = k * 3;
+              arr[j] = Math.cos(ang) * rad; arr[j + 1] = Math.sin(ang) * rad; arr[j + 2] = P.zBase + p * P.h;
+              const sp = Math.sin(p * Math.PI); alr[k] = sp > 0 ? P.baseA[k] * Math.pow(sp, 0.6) : 0; // fade in at base, out at crest
+            }
+            posAttr.needsUpdate = true; alpAttr.needsUpdate = true;
+            const gIn = Math.min(1, (effect.maxLife - effect.life) / 0.2), gOut = Math.min(1, effect.life / 0.4);
+            effect.mesh.material.uniforms.uOpacity.value = Math.min(gIn, gOut);
+          } else if (effect.kind === "windfunnel") { // nested vapor cones: follow, swirl (spin each shell), rise (scroll UV), fade
+            effect.t = (effect.t || 0) + dt;
+            if (typeof player !== "undefined" && player && player.pos) effect.mesh.position.set(player.pos.x, player.pos.y, 0);
+            if (effect.tex) effect.tex.offset.y = (effect.tex.offset.y - dt * 0.9) % 1; // vapor rising
+            const gIn = Math.min(1, (effect.maxLife - effect.life) / 0.2), gOut = Math.min(1, effect.life / 0.45), f = Math.min(gIn, gOut);
+            for (let c = 0; c < effect.cones.length; c += 1) {
+              effect.cones[c].rotation.z += effect.spin[c] * dt;
+              const m = effect.cones[c].children[0]; if (m && m.material) m.material.opacity = effect.baseO[c] * f;
             }
           }
           if (effect.life <= 0) {
@@ -11263,15 +11298,142 @@
         }
       }
 
+      // ---- WIND VORTEX (user direction 2026-06-10: kill the stacked-ring white-out + the "green graphic";
+      // make it read as DUST + VAPOR with real HEIGHT). The OLD spell respawned a 3-quad additive swirl
+      // ~6x/sec for 2s (updateTimers) = ~36 glowing planes summed straight to white. NOW: one persistent
+      // THREE.Points vortex + a faint ground disc, both FOLLOWING Santiago for the whole frenzy — hundreds of
+      // soft dust/vapor points seeded on 3 log-spiral arms (the original pattern), whirling clockwise and
+      // rising into a funnel that narrows upward, fading as they climb and recycling = a churning dust-devil
+      // column. Net cost: 2 effect entries / 1 draw call for the column (was ~36 churning quads).
+      let _windDiscTex;
+      function bakeWindDiscTex() {
+        if (_windDiscTex !== undefined) return _windDiscTex;
+        const C = 256, cv = document.createElement("canvas"); cv.width = cv.height = C;
+        const g = cv.getContext && cv.getContext("2d"); if (!g) { _windDiscTex = null; return null; }
+        const cx = C / 2, cy = C / 2, R = C * 0.48;
+        const grad = g.createRadialGradient(cx, cy, 0, cx, cy, R); // soft dust footprint, fading to nothing at the rim
+        grad.addColorStop(0, "rgba(255,255,255,0.5)"); grad.addColorStop(0.55, "rgba(255,255,255,0.2)"); grad.addColorStop(1, "rgba(255,255,255,0)");
+        g.fillStyle = grad; g.beginPath(); g.arc(cx, cy, R, 0, 6.3); g.fill();
+        let s = 9001; const rnd = () => { s = (s * 16807) % 2147483647; return s / 2147483647; };
+        for (let A = 0; A < 3; A += 1) { // VERY faint spiral streaks — a ground echo of the arms, not a graphic
+          const a0 = (A / 3) * Math.PI * 2 + rnd() * 0.3, sweep = 1.7 * Math.PI;
+          g.beginPath();
+          for (let k = 0; k <= 40; k += 1) { const t = k / 40, th = a0 + sweep * Math.pow(t, 0.7), r = R * (0.12 + 0.82 * t); const x = cx + Math.cos(th) * r, y = cy + Math.sin(th) * r; if (k) g.lineTo(x, y); else g.moveTo(x, y); }
+          g.strokeStyle = "rgba(255,255,255,0.1)"; g.lineWidth = C * 0.02; g.lineCap = "round"; g.stroke();
+        }
+        const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; _windDiscTex = t; return t;
+      }
+      // Custom point shader: per-particle world-size (size attenuation) + per-particle alpha + a soft round
+      // falloff (gl_PointCoord) — the things plain PointsMaterial can't do. NormalBlending so dust reads as
+      // dust, never summing to white. uScale = half the drawing-buffer height (three's own attenuation basis).
+      const WIND_VTX = "attribute float aSize; attribute float aAlpha; attribute vec3 aColor; uniform float uScale; varying vec3 vColor; varying float vAlpha; void main(){ vColor = aColor; vAlpha = aAlpha; vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_PointSize = aSize * (uScale / -mv.z); gl_Position = projectionMatrix * mv; }";
+      const WIND_FRG = "precision mediump float; uniform float uOpacity; varying vec3 vColor; varying float vAlpha; void main(){ float d = length(gl_PointCoord - vec2(0.5)); float m = smoothstep(0.5, 0.06, d); float a = vAlpha * m * uOpacity; if (a < 0.004) discard; gl_FragColor = vec4(vColor, a); }";
+      // Wispy vertical-streak texture for the vapor funnel — many wavy semi-transparent strokes with soft top/
+      // bottom fade, drawn with horizontal wrap copies so it TILES around the cylinder seam. White on alpha so
+      // the cone material tints it. The cone never reads solid: the streaks are gappy -> wisps, not a graphic.
+      let _windStreakTex;
+      function bakeWindStreakTex() {
+        if (_windStreakTex !== undefined) return _windStreakTex;
+        const Wc = 256, Hc = 256, cv = document.createElement("canvas"); cv.width = Wc; cv.height = Hc;
+        const g = cv.getContext && cv.getContext("2d"); if (!g) { _windStreakTex = null; return null; }
+        let s = 1234; const rnd = () => { s = (s * 16807) % 2147483647; return s / 2147483647; };
+        g.lineCap = "round"; g.lineJoin = "round";
+        // SOFT DIAGONAL streaks: a CONSTANT lean means each line wraps the cone as a HELIX = a spiral winding up
+        // the vortex (matching the dust arms). Each is a wide faint halo + a thin core = feathery wisps, not scratches.
+        const streak = (xc, slope, amp, ph, freq, a, w) => {
+          g.beginPath();
+          for (let y = 0; y <= Hc; y += 6) { const x = xc + slope * y + Math.sin((y / Hc) * Math.PI * freq + ph) * amp; if (y) g.lineTo(x, y); else g.moveTo(x, y); }
+          g.strokeStyle = "rgba(255,255,255," + a + ")"; g.lineWidth = w; g.stroke();
+        };
+        for (let i = 0; i < 64; i += 1) {
+          const xc = rnd() * Wc, slope = 0.5 + rnd() * 0.45, amp = 3 + rnd() * 10, ph = rnd() * 6.28, freq = 0.5 + rnd() * 1.6, aw = 0.04 + rnd() * 0.13;
+          for (const lay of [[6 + rnd() * 10, 0.5], [1.4 + rnd() * 2.6, 1.0]]) // halo -> bright core
+            for (const dx of [0, -Wc, Wc]) streak(xc + dx, slope, amp, ph, freq, aw * lay[1], lay[0]); // wrap copies = seamless U tiling
+        }
+        for (let b = 0; b < 26; b += 1) { // diffuse haze blobs so it reads as VAPOR between the wisps (not bare lines)
+          const bx = rnd() * Wc, by = rnd() * Hc, br = 18 + rnd() * 42, ba = 0.03 + rnd() * 0.05;
+          for (const dx of [0, -Wc, Wc]) { const gr = g.createRadialGradient(bx + dx, by, 0, bx + dx, by, br); gr.addColorStop(0, "rgba(255,255,255," + ba + ")"); gr.addColorStop(1, "rgba(255,255,255,0)"); g.fillStyle = gr; g.beginPath(); g.arc(bx + dx, by, br, 0, 6.3); g.fill(); }
+        }
+        const grad = g.createLinearGradient(0, 0, 0, Hc); // soft fade at the very top + bottom (no hard cone rings)
+        grad.addColorStop(0, "rgba(0,0,0,1)"); grad.addColorStop(0.16, "rgba(0,0,0,0)"); grad.addColorStop(0.82, "rgba(0,0,0,0)"); grad.addColorStop(1, "rgba(0,0,0,1)");
+        g.globalCompositeOperation = "destination-out"; g.fillStyle = grad; g.fillRect(0, 0, Wc, Hc); g.globalCompositeOperation = "source-over";
+        const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; _windStreakTex = t; return t;
+      }
       function createWindSwirl(pos, radius) {
-        // PAINTED, fully (user notes: the old line-arc streaks are OUT, spin flipped, and the AoE must
-        // read for the WHOLE spell): the wind frenzy follows Santiago for 2s, so the smoky spiral AND a
-        // held aura ring at the frenzy radius ride him (follow) for the full 2s — the ring IS the AoE
-        // read. The cast pop still explodes outward one-shot at the cast point. Plain ring = fallback.
-        const pr = createFlipbook("flame-ring", pos, 2.2, 0x9be3b0, { life: 0.55, frames: fxCell(3, 8), spin: 1.2, grow: radius * 1.5, z: 0.47 });
-        createFlipbook("wind-spiral", pos, radius * 1.9, 0xc9f2d6, { life: 2.0, frames: fxCell(0, 8), spin: 2.6, z: 0.45, opacity: 0.9, delay: 0.1, fadeIn: 0.18, follow: true });
-        createFlipbook("flame-ring", pos, radius * 3.1, 0x9be3b0, { life: 2.0, frames: fxCell(3, 8), spin: 0.4, z: 0.46, opacity: 0.75, delay: 0.28, fadeIn: 0.25, follow: true });
-        if (!pr) createRing(pos, 0x9be3b0, radius);
+        const life = 2.0; // = the wind-frenzy duration (updateTimers); everything FOLLOWS the player for it
+        const H = Math.max(2.4, radius * 0.62), base = radius * 0.5; // tall funnel: ~5.2u for the full 8.4u cast
+        let built = false;
+        // (1) FAINT GROUND DISC = the AoE read against the hitbox ruler (follows + blooms; NormalBlending, never whites out).
+        try {
+          const src = bakeWindDiscTex();
+          if (src && src.clone) {
+            const discTex = src.clone(); discTex.needsUpdate = true;
+            const disc = new THREE.Mesh(new THREE.PlaneGeometry(radius * 2, radius * 2),
+              new THREE.MeshBasicMaterial({ map: discTex, color: 0xa9d8c0, transparent: true, opacity: 0, blending: THREE.NormalBlending, depthWrite: false }));
+            disc.position.set(pos.x, pos.y, 0.42);
+            groups.effects.add(disc);
+            game.effects.push({ kind: "winddisc", mesh: disc, tex: discTex, discBase: 0.3, life, maxLife: life });
+            built = true;
+          }
+        } catch (e) { /* disc optional */ }
+        // (2) VAPOR FUNNEL = the coherent body. Two nested open cones (wide base -> narrow top) wrapped in the
+        // wispy streak texture; each pivot spins around the vertical axis (the swirl) + the shared texture scrolls
+        // up (rising vapor). This is what was missing — a column you can SEE, not floating dots.
+        try {
+          if (typeof THREE.CylinderGeometry === "function") {
+            const stx = bakeWindStreakTex();
+            if (stx && stx.clone) {
+              const tex = stx.clone(); tex.needsUpdate = true; tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.repeat.set(2.2, 1.5);
+              const group = new THREE.Group(); group.position.set(pos.x, pos.y, 0);
+              const cones = [], baseO = [0.3, 0.36], spin = [1.3, -2.1];
+              const mk = (rb, rt, op, tint) => {
+                const m = new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, H, 24, 1, true),
+                  new THREE.MeshBasicMaterial({ map: tex, color: tint, transparent: true, opacity: 0, blending: THREE.NormalBlending, depthWrite: false, side: THREE.DoubleSide }));
+                m.rotation.x = Math.PI / 2; m.position.z = H / 2 + 0.12; // stand it up along world-Z, base just off the ground
+                const piv = new THREE.Group(); piv.add(m); group.add(piv); cones.push(piv);
+              };
+              mk(base, radius * 0.16, baseO[0], 0xbfe6cf);          // outer: wider, fainter, pale green-gray
+              mk(base * 0.6, radius * 0.08, baseO[1], 0xa6dcc0);    // inner: tighter, denser
+              groups.effects.add(group);
+              game.effects.push({ kind: "windfunnel", mesh: group, tex, cones, baseO, spin, life, maxLife: life });
+              built = true;
+            }
+          }
+        } catch (e) { /* funnel optional */ }
+        // (3) DUST GRAIN = fine motes spiralling up around the funnel (warm tan + a little green), the texture/sparkle.
+        try {
+          if (typeof THREE.Points !== "function" || typeof THREE.ShaderMaterial !== "function") throw 0;
+          const n = 600, arms = 3, zBase = 0.15;
+          const posA = new Float32Array(n * 3), colA = new Float32Array(n * 3), sizA = new Float32Array(n), alpA = new Float32Array(n);
+          const P = { n, base, h: H, zBase, wrap: 2.4, spin: 1.5, arm: new Float32Array(n), a0: new Float32Array(n), r0: new Float32Array(n), ph: new Float32Array(n), rr: new Float32Array(n), wob: new Float32Array(n), baseA: new Float32Array(n) };
+          let s = 4242; const rnd = () => { s = (s * 16807) % 2147483647; return s / 2147483647; };
+          for (let i = 0; i < n; i += 1) {
+            const green = rnd() < 0.3;
+            P.arm[i] = (((rnd() * arms) | 0) / arms) * Math.PI * 2;
+            P.a0[i] = (rnd() - 0.5) * 0.6;
+            P.r0[i] = 0.4 + rnd() * 0.8;         // hug the funnel surface, some flecking off past it
+            P.ph[i] = rnd();
+            P.rr[i] = 0.35 + rnd() * 0.45;
+            P.wob[i] = rnd() * 6.28;
+            P.baseA[i] = 0.35 + rnd() * 0.4;
+            sizA[i] = 0.06 + rnd() * (rnd() < 0.15 ? 0.34 : 0.16); // FINE grain (mostly tiny, a few bigger flecks)
+            if (green) { colA[i * 3] = 0.82; colA[i * 3 + 1] = 0.93; colA[i * 3 + 2] = 0.85; }
+            else { colA[i * 3] = 0.82; colA[i * 3 + 1] = 0.79; colA[i * 3 + 2] = 0.7; }
+          }
+          const geo = new THREE.BufferGeometry();
+          geo.setAttribute("position", new THREE.BufferAttribute(posA, 3));
+          geo.setAttribute("aColor", new THREE.BufferAttribute(colA, 3));
+          geo.setAttribute("aSize", new THREE.BufferAttribute(sizA, 1));
+          geo.setAttribute("aAlpha", new THREE.BufferAttribute(alpA, 1));
+          const uScale = (renderer && renderer.domElement ? renderer.domElement.height : 800) * 0.5;
+          const mat = new THREE.ShaderMaterial({ uniforms: { uScale: { value: uScale }, uOpacity: { value: 0 } }, vertexShader: WIND_VTX, fragmentShader: WIND_FRG, transparent: true, depthWrite: false, blending: THREE.NormalBlending });
+          const pts = new THREE.Points(geo, mat);
+          pts.position.set(pos.x, pos.y, 0); pts.frustumCulled = false;
+          groups.effects.add(pts);
+          game.effects.push({ kind: "windvortex", mesh: pts, p: P, t: 0, life, maxLife: life });
+          built = true;
+        } catch (e) { /* dust optional */ }
+        if (!built) createRing(pos, 0x9be3b0, radius); // last-ditch AoE read if canvas + Points + Cylinder are all unavailable
       }
 
       // ---- FLIPBOOK FX: grayscale atlas sheets (game/fx/*.png, baked by dev/fx/make-atlas.py from the
@@ -11279,7 +11441,7 @@
       // serves fire/water/lightning recolors. Cells are luminance-ordered dim->bright, so frame RANGES
       // pick the read (0-2 wispy embers, 3-8 full burn). Missing/unloaded texture -> the caller's
       // procedural visuals simply stand alone (same graceful-fallback contract as the GLB models).
-      const FX_ATLAS = { "flame-ring": { cells: 9, cols: 3 }, "flame-disc": { cells: 9, cols: 3 }, "wind-spiral": { cells: 9, cols: 3 } };
+      const FX_ATLAS = { "flame-ring": { cells: 9, cols: 3 }, "flame-disc": { cells: 9, cols: 3 }, "wind-spiral": { cells: 9, cols: 3 }, "water-foam": { cells: 9, cols: 3 }, "fire-ember": { cells: 9, cols: 3 } };
       const _fxTexCache = {};
       // CODE-PAINTED flame atlas (user direction 2026-06-10: the photoreal image sheets are out — paint the
       // style in code, lighter than shipping images): 3x3 cells of STYLIZED grayscale flames baked onto a
@@ -11290,7 +11452,7 @@
         const C = 256, N = 3, cv = document.createElement("canvas");
         cv.width = cv.height = C * N;
         const g = cv.getContext && cv.getContext("2d"); if (!g) return null;
-        let s = kind === "flame-ring" ? 1337 : kind === "wind-spiral" ? 9001 : 4242;
+        let s = kind === "flame-ring" ? 1337 : kind === "wind-spiral" ? 9001 : kind === "water-foam" ? 2718 : kind === "fire-ember" ? 777 : 4242;
         const rnd = () => { s = (s * 16807) % 2147483647; return s / 2147483647; };
         for (let i = 0; i < 9; i += 1) {
           const cx = (i % N) * C + C / 2, cy = ((i / N) | 0) * C + C / 2;
@@ -11330,6 +11492,44 @@
                 g.strokeStyle = `rgba(255,255,255,${(0.10 + rnd() * 0.16) * inten})`; g.lineWidth = C * (0.006 + rnd() * 0.01); g.lineCap = "round"; g.stroke();
               }
             }
+          } else if (kind === "water-foam") {
+            // FOAMY tsunami ring (user's reference): hundreds of stamped flecks along a wobbly band =
+            // ragged granular foam, spray outside, a faint wash inside (every 3rd cell foamier within).
+            const band = C * (0.05 + rnd() * 0.02);
+            outline(R); g.strokeStyle = `rgba(255,255,255,${0.16 * inten})`; g.lineWidth = band * 2.2; g.lineJoin = "round"; g.stroke(); // soft binder under the grain
+            for (let f = 0; f < 680; f += 1) { // band flecks, INWARD-biased: the outer edge stays AT the ring (= the hitbox) — overshoot read bad vs the ruler
+              const a = rnd() * Math.PI * 2, jit = band * 0.4 - Math.abs(rnd() + rnd() - 1) * band * 2.0, r = R * wob(a) + jit;
+              g.beginPath(); g.arc(cx + Math.cos(a) * r, cy + Math.sin(a) * r, 0.6 + rnd() * (rnd() < 0.12 ? 4.5 : 2.2), 0, 6.3);
+              g.fillStyle = `rgba(255,255,255,${(0.12 + rnd() * 0.5) * inten})`; g.fill();
+            }
+            for (let f = 0; f < 90; f += 1) { // SPRAY flecks tumbling INWARD (the wake), not past the front
+              const a = rnd() * Math.PI * 2, r = R * wob(a) - band * (1.2 + rnd() * 3.2);
+              g.beginPath(); g.arc(cx + Math.cos(a) * r, cy + Math.sin(a) * r, 0.5 + rnd() * 1.6, 0, 6.3);
+              g.fillStyle = `rgba(255,255,255,${(0.08 + rnd() * 0.3) * inten})`; g.fill();
+            }
+            for (let f = 0; f < 110; f += 1) { // interior WASH
+              const rr = Math.sqrt(rnd()) * (R - band), a = rnd() * Math.PI * 2;
+              g.beginPath(); g.arc(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr, 0.5 + rnd() * 1.8, 0, 6.3);
+              g.fillStyle = `rgba(255,255,255,${(0.04 + rnd() * 0.13) * inten * (i % 3 === 1 ? 2.2 : 1)})`; g.fill();
+            }
+          } else if (kind === "fire-ember") {
+            // EMBER BED (user: keep a near-perfect circle, but read as roasted coals): dim circular base,
+            // glowing ember grains clumping toward the middle, hot jagged crack lines. No wobble, no licks.
+            const grad = g.createRadialGradient(cx, cy, 0, cx, cy, R * 1.05);
+            grad.addColorStop(0, `rgba(255,255,255,${0.30 * inten})`); grad.addColorStop(0.75, `rgba(255,255,255,${0.16 * inten})`); grad.addColorStop(1, "rgba(255,255,255,0)");
+            g.fillStyle = grad; g.beginPath(); g.arc(cx, cy, R * 1.05, 0, 6.3); g.fill();
+            for (let f = 0; f < 240; f += 1) { // ember grains
+              const rr = Math.sqrt(rnd()) * R, a = rnd() * Math.PI * 2;
+              g.beginPath(); g.arc(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr, 0.8 + rnd() * (rnd() < 0.15 ? 4 : 2), 0, 6.3);
+              g.fillStyle = `rgba(255,255,255,${(0.10 + rnd() * 0.55) * inten * (1 - 0.4 * (rr / R))})`; g.fill();
+            }
+            for (let cr = 0; cr < 8; cr += 1) { // glowing CRACKS
+              let a = rnd() * Math.PI * 2, rr = Math.sqrt(rnd()) * R * 0.85, th = rnd() * Math.PI * 2;
+              let x = cx + Math.cos(a) * rr, y = cy + Math.sin(a) * rr;
+              g.beginPath(); g.moveTo(x, y);
+              for (let seg = 0; seg < 4; seg += 1) { th += (rnd() - 0.5) * 1.4; const sl = C * (0.02 + rnd() * 0.035); x += Math.cos(th) * sl; y += Math.sin(th) * sl; g.lineTo(x, y); }
+              g.strokeStyle = `rgba(255,255,255,${(0.3 + rnd() * 0.4) * inten})`; g.lineWidth = 1 + rnd() * 1.8; g.lineCap = "round"; g.stroke();
+            }
           } else {
             const grad = g.createRadialGradient(cx, cy, 0, cx, cy, R * 1.15);
             grad.addColorStop(0, `rgba(255,255,255,${inten})`); grad.addColorStop(0.55, `rgba(255,255,255,${0.7 * inten})`); grad.addColorStop(1, "rgba(255,255,255,0)");
@@ -11344,7 +11544,7 @@
           // flame TONGUES: filled tapered teardrops — wide where they MERGE into the body (base tucked
           // inside the edge), narrowing to a curled point (user: thin whisker strokes read as tendrils).
           // Spirals skip them — their wisps are the flavor.
-          const licks = kind === "wind-spiral" ? 0 : (kind === "flame-ring" ? 7 : 5) + ((rnd() * 4) | 0);
+          const licks = kind === "wind-spiral" || kind === "water-foam" || kind === "fire-ember" ? 0 : (kind === "flame-ring" ? 7 : 5) + ((rnd() * 4) | 0);
           for (let L = 0; L < licks; L += 1) {
             const a = rnd() * Math.PI * 2;
             const r0 = (kind === "flame-ring" ? R * wob(a) : R * (0.72 + rnd() * 0.3)) - C * 0.025; // base sunk into the body
@@ -11385,7 +11585,7 @@
         groups.effects.add(mesh);
         const life = o.life === undefined ? 1 : o.life;
         if (o.delay) mesh.visible = false; // stays hidden until the delay elapses (the cast pop leads)
-        const fb = { kind: "flipbook", mesh, tex, cells: a.cells, cols: a.cols, rows, fps: o.fps || 10, spin: o.spin || 0, grow: o.grow || 0, delay: o.delay || 0, fadeIn: o.fadeIn || 0, follow: !!o.follow, t: Math.random() * 9, frames: o.frames || null, life, maxLife: life, baseO: op };
+        const fb = { kind: "flipbook", mesh, tex, cells: a.cells, cols: a.cols, rows, fps: o.fps || 10, spin: o.spin || 0, grow: o.grow || 0, delay: o.delay || 0, fadeIn: o.fadeIn || 0, follow: !!o.follow, flicker: o.flicker || 0, t: Math.random() * 9, frames: o.frames || null, life, maxLife: life, baseO: op };
         game.effects.push(fb);
         return fb;
       }
@@ -11421,9 +11621,14 @@
         game.zones.push({ kind: "fire", pos: pos.clone(), radius, life: 3.6, maxLife: 3.6, mesh, tick: 0 });
         flashFxLight(pos, 0xff6a1a, 8, 1.4); // the inferno casts firelight
         createFlameBurst(pos, radius);
+        // EMBER BED (user: the flat circle read bad — keep it circular but roast it): a held ember-atlas
+        // cell at the full zone radius with a slow flicker replaces the flat under-glow; the flat circle
+        // stays ONLY as the no-atlas fallback (the zone's own opacity flicker then drives it as before).
+        const ember = createFlipbook("fire-ember", pos, radius * 3.2, 0xff7a28, { life: 3.6, frames: fxCell(0, 8), spin: 0.06, z: 0.41, opacity: 0.95, flicker: 0.35 });
+        if (ember) mesh.visible = false;
         // PAINTED FLAMES (the user's sheets), each layer a HELD random cell = every cast a unique painting
         // (user direction: variation, NOT flip-animation; slow drift-spin only). Filled core + counter-
-        // spinning white-hot heart + the painted aura ring; the flat circle above stays as under-glow/fallback.
+        // spinning white-hot heart + the painted aura ring.
         // SEQUENCED behind the burst (user: the pop leads): flames bloom in 0.18s later while the ring is still exploding
         createFlipbook("flame-disc", pos, radius * 2.3, 0xff5a14, { life: 3.6, frames: fxCell(0, 8), spin: 0.3, z: 0.42, opacity: 0.9, delay: 0.18, fadeIn: 0.3 });
         createFlipbook("flame-disc", pos, radius * 1.5, 0xffc878, { life: 3.6, frames: fxCell(0, 8), spin: -0.5, z: 0.44, opacity: 0.8, delay: 0.26, fadeIn: 0.3 });
@@ -11445,7 +11650,28 @@
         mesh.position.set(pos.x, pos.y, 0.5);
         mesh.scale.setScalar(0.3);
         groups.effects.add(mesh);
-        game.zones.push({ kind: "waterwave", pos: pos.clone(), radius: 0.3, maxRadius, life: 0.7, maxLife: 0.7, mesh, damage, hit: new Set() });
+        const z = { kind: "waterwave", pos: pos.clone(), radius: 0.3, maxRadius, life: 0.7, maxLife: 0.7, mesh, damage, hit: new Set() };
+        // PAINTED FOAM (user's tsunami-ring reference): a held foam cell rides the zone's expanding hit
+        // radius, scaled to 0.95 so the wake churns BEHIND the wall (the foam bake is also inward-biased —
+        // user: the foam overshot the red hitbox ring badly at big radii).
+        const foam = createFlipbook("water-foam", pos, 3.34, 0x9fd8ff, { life: 0.7, frames: fxCell(0, 8), spin: 0.5, z: 0.48, opacity: 0.95 });
+        if (foam) { foam.mesh.scale.setScalar(0.01); z.foam = foam.mesh; }
+        // 3D WAVE WALL (user request): a low-poly lathe ring with a wave profile — rising inner face up to
+        // a crest that curls OUTWARD; the outer face is normalized to exactly 1.0, so scale = the TRUE hit
+        // radius and the wall IS the boundary. Height rises then CRASHES at the rim (driven in updateZones).
+        try {
+          // STEEP wall profile (user: barely 3D, wants >=2u): thin band (0.86r..1.0r), near-vertical face,
+          // crest at normalized height 1.0 curling slightly outward — scale.y in updateZones = height in UNITS
+          const prof = [[0.86, 0.02], [0.90, 0.25], [0.945, 0.6], [0.98, 0.92], [1.0, 1.0], [1.015, 0.8]].map((p2) => new THREE.Vector2(p2[0], p2[1]));
+          const wall = new THREE.Mesh(new THREE.LatheGeometry(prof, 48),
+            new THREE.MeshBasicMaterial({ color: 0x4fc3ff, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+          wall.rotation.x = Math.PI / 2; // lathe revolves around Y -> stand it up on the XY play plane (z = height)
+          wall.position.set(pos.x, pos.y, 0.06);
+          wall.scale.set(0.01, 0.05, 0.01); // LOCAL space: x/z = radial, y = height (the rotation maps local Y to world Z)
+          groups.effects.add(wall);
+          z.wall = wall;
+        } catch (e) { /* no wall -> flat ring + foam still read */ }
+        game.zones.push(z);
       }
 
       function createLightningArc(from, to) {
@@ -11838,6 +12064,12 @@
             const p = 1 - z.life / z.maxLife;
             z.radius = p * z.maxRadius;
             z.mesh.scale.setScalar(Math.max(0.01, z.radius));
+            if (z.foam) z.foam.scale.setScalar(Math.max(0.01, z.radius * 0.95)); // wake foam churns just BEHIND the wall
+            if (z.wall) { // the 3D wave: radial = the TRUE hit radius; height (in units) rises fast then CRASHES at the rim
+              const hp = Math.sin(Math.min(1, Math.pow(p, 0.7)) * Math.PI); // pow: reaches full height early, holds longer
+              z.wall.scale.set(Math.max(0.01, z.radius), Math.max(0.05, 2.3 * hp), Math.max(0.01, z.radius));
+              z.wall.material.opacity = 0.55 * (0.35 + 0.65 * hp);
+            }
             z.mesh.material.opacity = (1 - p) * 0.85;
             for (const e of game.enemies) {
               if (e.dead || z.hit.has(e)) continue;
@@ -11893,6 +12125,10 @@
             if (z.disc) {
               groups.effects.remove(z.disc);
               disposeObject(z.disc);
+            }
+            if (z.wall) {
+              groups.effects.remove(z.wall);
+              disposeObject(z.wall);
             }
             game.zones.splice(i, 1);
           }

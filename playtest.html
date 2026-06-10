@@ -125,7 +125,7 @@
         const el = $("elements"); el.innerHTML = "";
         L.elements.forEach((e) => el.appendChild(btn(e.label, e.color, () => safe(() => sb.element(e.id)))));
         const co = $("combos"); co.innerHTML = "";
-        L.combos.forEach((c) => co.appendChild(btn(c.name, c.color, () => safe(() => sb.combo(c.key)))));
+        L.combos.forEach((c) => co.appendChild(btn(c.name, c.color, () => safe(() => sb.combo(c.key)), c.key))); // sub-label = the RECIPE (several recipes share a result, e.g. water conducts -> Electric Field x3)
         const st = $("streaks"); st.innerHTML = "";
         L.streaks.forEach((s) => st.appendChild(btn(s.label, null, () => safe(() => sb.streak(s.id)), s.threshold ? "@" + s.threshold : "")));
       }
