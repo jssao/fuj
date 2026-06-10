@@ -1,0 +1,1061 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mob & Boss Model Viewer</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #1c2024; overflow: hidden; }
+      #info { position: fixed; left: 10px; top: 8px; color: #cfd4cc; font: 12px ui-monospace, Menlo, monospace; z-index: 5; pointer-events: none; text-shadow: 0 1px 3px #000; }
+      #hint { position: fixed; right: 10px; top: 8px; color: #8b9099; font: 12px ui-monospace, Menlo, monospace; z-index: 5; pointer-events: none; }
+      canvas.gl { display: block; cursor: grab; }
+      canvas.gl.grabbing { cursor: grabbing; }
+      #ruler { position: fixed; inset: 0; z-index: 4; pointer-events: none; }
+      /* ---- single-model view panel ---- */
+      #panel { position: fixed; right: 0; top: 0; bottom: 0; width: 300px; z-index: 6; overflow-y: auto; display: none;
+               background: rgba(24,27,31,0.93); border-left: 1px solid #2d3137; color: #e8e4da; font: 12px/1.45 ui-monospace, Menlo, monospace; padding: 10px 12px 24px; }
+      #panel h1 { font-size: 14px; margin: 2px 0 2px; }
+      #panel h2 { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #8b9099; margin: 14px 0 6px; border-bottom: 1px solid #2d3137; padding-bottom: 3px; }
+      #panel .dim { color: #8b9099; font-size: 11px; }
+      #panel button { font: inherit; color: #e8e4da; background: #262a30; border: 1px solid #2d3137; border-radius: 6px; padding: 4px 8px; cursor: pointer; margin: 2px 2px 2px 0; }
+      #panel button:hover { background: #2f343b; }
+      #panel button.on { background: #f8bf48; color: #1a130a; border-color: #f8bf48; }
+      #panel label { display: flex; align-items: center; gap: 6px; margin: 3px 0; color: #cfd4cc; }
+      #panel input[type="range"] { flex: 1; }
+      #panel input[type="text"] { flex: 1; background: #101215; color: #e8e4da; border: 1px solid #2d3137; border-radius: 5px; padding: 3px 6px; font: inherit; }
+      #panel .joint { padding: 2px 6px; border-radius: 5px; cursor: pointer; }
+      #panel .joint.sel { background: #f8bf48; color: #1a130a; }
+      #texprev { width: 100%; border: 1px solid #2d3137; border-radius: 6px; image-rendering: pixelated; background: #111; }
+      #back { position: fixed; left: 10px; top: 28px; z-index: 6; display: none; font: 12px ui-monospace, Menlo, monospace;
+              color: #e8e4da; background: #262a30; border: 1px solid #2d3137; border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+      #rigjson { width: 100%; height: 80px; background: #101215; color: #cfd4cc; border: 1px solid #2d3137; border-radius: 6px; font: 10px ui-monospace, Menlo, monospace; }
+    </style>
+    <script type="importmap">
+      { "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/"
+      } }
+    </script>
+  </head>
+  <body>
+    <div id="info">loading…</div>
+    <div id="hint">drag a model to rotate · CLICK a model to inspect it</div>
+    <svg id="ruler"></svg>
+    <button id="back">← all models (Esc)</button>
+    <div id="panel"></div>
+    <script type="module">
+      import * as THREE from "three";
+      import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+      import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+      import { TransformControls } from "three/addons/controls/TransformControls.js";
+      import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+      import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+      import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
+
+      // [file, label, glowKey] — two rows of 8 (mobs+shield, then rest+bosses)
+      const ROWS = [
+        [
+          ["ash_dead.glb", "basic", null], ["crawler.glb", "crawler", null], ["hugger.glb", "hugger", null], ["ranged.glb", "ranged", null],
+          ["stalker.glb", "stalker", null], ["lurker.glb", "lurker", "lurker"], ["brute.glb", "brute", null], ["wisp.glb", "wisp", "wisp"],
+        ],
+        [
+          ["bursar.glb", "bursar", "bursar"], ["spitter.glb", "spitter", null], ["shield.glb", "Bulwark", null], ["boss-tyrant.glb", "Grave Tyrant", null],
+          ["boss-warden.glb", "Rune Warden", "warden"], ["boss-alpha.glb", "Pack Alpha", null], ["boss-conduit.glb", "Hex Conduit", null], ["boss-colossus.glb", "Crown Colossus", null],
+        ],
+      ];
+      // emissive color-key glow (replicated from the game's MOB_GLOW)
+      const GLOW = {
+        lurker: { color: 0xb14cff, intensity: 2.0, hueC: 0.967, hueW: 0.06, satMin: 0.28, valMin: 0.35 },
+        wisp:   { color: 0x3ad8ff, intensity: 1.9, hueC: 0.5,   hueW: 1.0,  satMin: 0.0,  valMin: 0.55 },
+        bursar: { color: 0xff7a18, intensity: 2.0, hueC: 0.075, hueW: 0.08, satMin: 0.5,  valMin: 0.32 },
+        warden: { color: 0x4fd8ff, intensity: 1.8, hueC: 0.52,  hueW: 0.10, satMin: 0.45, valMin: 0.42 }, // cyan rune-rods (sat+val keyed -> excludes the desaturated stone body)
+      };
+      const TARGET_H = 2.1, SPACING = 3.0, ROW_Y = 3.4;
+      // Default-yaw flip (viewer only — gameplay orients these itself). These GLBs face away from the camera natively.
+      const FLIP = { "boss-conduit.glb": true };
+      const SCALE = { "stalker.glb": [1.95, 1, 1], "hugger.glb": [1, 1, 1.15], "boss-tyrant.glb": [1, 1, 1.2] }; // non-uniform pre-fit scale — thicken thin axes (stalker X; hugger +15% & tyrant +20% on Z = profile)
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x1c2024);
+      scene.fog = new THREE.Fog(0x1c2024, 34, 80);
+      const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 200);
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setPixelRatio(Math.min(2, devicePixelRatio));
+      renderer.setSize(innerWidth, innerHeight);
+      renderer.domElement.className = "gl";
+      document.body.appendChild(renderer.domElement);
+
+      const composer = new EffectComposer(renderer);
+      const renderPass = new RenderPass(scene, camera);
+      composer.addPass(renderPass);
+      const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.7, 0.5, 0.82);
+      composer.addPass(bloom);
+
+      scene.add(new THREE.HemisphereLight(0xffffff, 0x44484a, 2.0));
+      const key = new THREE.DirectionalLight(0xffffff, 1.5); key.position.set(5, 10, 8); scene.add(key);
+      const rim = new THREE.DirectionalLight(0x90b0ff, 0.6); rim.position.set(-6, 5, -8); scene.add(rim);
+      const floor = new THREE.Mesh(new THREE.PlaneGeometry(140, 60), new THREE.MeshStandardMaterial({ color: 0x282d33, roughness: 1 }));
+      floor.rotation.x = -Math.PI / 2; scene.add(floor);
+      scene.add(new THREE.GridHelper(140, 70, 0x404a5a, 0x333842));
+      const shelf = new THREE.Mesh(new THREE.BoxGeometry(60, 0.15, 4), new THREE.MeshStandardMaterial({ color: 0x282d33, roughness: 1 }));
+      shelf.position.set(0, 3.3, -0.9); scene.add(shelf); // platform under the top row
+
+      function applyGlow(root, g) {
+        root.traverse((o) => {
+          if (!o.isMesh || !o.material) return;
+          (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => {
+            if (m.emissive && m.emissive.setHex) m.emissive.setHex(0x000000);
+            m.toneMapped = false; m.userData.glowBase = g.intensity;
+            m.onBeforeCompile = (sh) => {
+              sh.uniforms.uGlowTint = { value: new THREE.Color(g.color) }; sh.uniforms.uGlowI = { value: g.intensity };
+              sh.uniforms.uHueC = { value: g.hueC }; sh.uniforms.uHueW = { value: g.hueW }; sh.uniforms.uSatMin = { value: g.satMin }; sh.uniforms.uValMin = { value: g.valMin };
+              sh.fragmentShader = sh.fragmentShader
+                .replace("#include <common>", "#include <common>\nuniform vec3 uGlowTint; uniform float uGlowI; uniform float uHueC; uniform float uHueW; uniform float uSatMin; uniform float uValMin;\nvec3 _rgb2hsv(vec3 c){vec4 K=vec4(0.,-1./3.,2./3.,-1.);vec4 p=mix(vec4(c.bg,K.wz),vec4(c.gb,K.xy),step(c.b,c.g));vec4 q=mix(vec4(p.xyw,c.r),vec4(c.r,p.yzx),step(p.x,c.r));float d=q.x-min(q.w,q.y);return vec3(abs(q.z+(q.w-q.y)/(6.*d+1e-10)),d/(q.x+1e-10),q.x);}")
+                .replace("#include <emissivemap_fragment>", "vec3 _h=_rgb2hsv(diffuseColor.rgb);float _hd=abs(_h.x-uHueC);_hd=min(_hd,1.-_hd);float _m=step(_hd,uHueW)*step(uSatMin,_h.y)*step(uValMin,_h.z);totalEmissiveRadiance=uGlowTint*uGlowI*_m;");
+              m.userData.glowUniforms = sh.uniforms;
+            };
+            m.needsUpdate = true;
+          });
+        });
+      }
+
+      // ---- Hex Conduit two-band self-illumination (single mesh/texture -> all HSV-keyed from albedo) ----
+      const CONDUIT_FX = { glowI: 1.0, orange: 0xff7a18, orangeI: 2.2, vein: 0xffe8c0, cyan: 0x4fe0ff, cyanI: 2.0, cyanValMin: 0.40, capeTransp: 0.70 };
+      const CONDUIT_COMMON =
+        "#include <common>\n" +
+        "uniform float uGlowI; uniform vec3 uOrange; uniform float uOrangeI; uniform vec3 uVein;\n" +
+        "uniform vec3 uCyan; uniform float uCyanI; uniform float uCyanValMin; uniform float uCapeTransp;\n" +
+        "vec3 _hsvC(vec3 c){vec4 K=vec4(0.,-1./3.,2./3.,-1.);vec4 p=mix(vec4(c.bg,K.wz),vec4(c.gb,K.xy),step(c.b,c.g));vec4 q=mix(vec4(p.xyw,c.r),vec4(c.r,p.yzx),step(p.x,c.r));float d=q.x-min(q.w,q.y);return vec3(abs(q.z+(q.w-q.y)/(6.*d+1e-10)),d/(q.x+1e-10),q.x);}";
+      const CONDUIT_EMISSIVE =
+        "#include <emissivemap_fragment>\n" +
+        "{ vec3 _hsv=_hsvC(diffuseColor.rgb); float H=_hsv.x, S=_hsv.y, V=_hsv.z;\n" +
+        "  float hdO=abs(H-0.07); hdO=min(hdO,1.0-hdO);\n" +
+        "  float maskO=smoothstep(0.10,0.045,hdO)*smoothstep(0.26,0.44,S);\n" +
+        "  float vein=smoothstep(0.60,0.85,V);\n" +
+        "  vec3 tintO=mix(uOrange,uVein,vein*0.45);\n" +
+        "  float intO=uOrangeI*(0.55+0.90*V)*(1.0+vein*0.25);\n" +
+        "  float hdC=abs(H-0.54); hdC=min(hdC,1.0-hdC);\n" +
+        "  float maskC=smoothstep(0.14,0.05,hdC)*smoothstep(uCyanValMin-0.12,uCyanValMin+0.10,V);\n" +
+        "  float intC=uCyanI*(0.50+0.90*V);\n" +
+        "  float blueGate=step(0.42,H)*step(H,0.74);\n" +
+        "  float pale=smoothstep(0.30,0.12,S)*smoothstep(0.45,0.72,V)*blueGate;\n" +
+        "  totalEmissiveRadiance += (tintO*intO*maskO + uCyan*intC*maskC*(1.0-0.4*pale))*uGlowI;\n" +
+        "  diffuseColor.a *= 1.0 - uCapeTransp*pale; }";
+      function applyConduitFX(root) {
+        root.traverse((o) => {
+          if (!o.isMesh || !o.material) return;
+          (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => {
+            if (m.emissive && m.emissive.setHex) m.emissive.setHex(0x000000);
+            m.toneMapped = false; m.transparent = true; m.depthWrite = true; m.userData.glowBase = CONDUIT_FX.glowI;
+            m.onBeforeCompile = (sh) => {
+              sh.uniforms.uGlowI = { value: CONDUIT_FX.glowI };
+              sh.uniforms.uOrange = { value: new THREE.Color(CONDUIT_FX.orange) }; sh.uniforms.uOrangeI = { value: CONDUIT_FX.orangeI };
+              sh.uniforms.uVein = { value: new THREE.Color(CONDUIT_FX.vein) };
+              sh.uniforms.uCyan = { value: new THREE.Color(CONDUIT_FX.cyan) }; sh.uniforms.uCyanI = { value: CONDUIT_FX.cyanI };
+              sh.uniforms.uCyanValMin = { value: CONDUIT_FX.cyanValMin }; sh.uniforms.uCapeTransp = { value: CONDUIT_FX.capeTransp };
+              sh.fragmentShader = sh.fragmentShader.replace("#include <common>", CONDUIT_COMMON).replace("#include <emissivemap_fragment>", CONDUIT_EMISSIVE);
+              m.userData.glowUniforms = sh.uniforms;
+            };
+            m.needsUpdate = true;
+          });
+        });
+      }
+
+      // ---- Generic albedo FX (HSV-keyed): emissive band + darken band + fade-to-transparent band. Mirrors the game. ----
+      const MOB_FX_FILE = {
+        "lurker.glb":  { emi: { c: 0x9a3cff, i: 2.4, hc: 0.967, hw: 0.06, smin: 0.28, vmin: 0.35 }, dark: { a: 0.20, hc: 0.80, hw: 0.10, smin: 0.20, vmax: 0.45 }, fade: { a: 0.60, hc: 0.80, hw: 0.16, vmin: 0.50, smax: 0.40 } },
+        "spitter.glb": { dark: { a: 0.20, hc: 0.55, hw: 0.13, smin: 0.18, vmax: 1.0 } },
+      };
+      const MOBFX_COMMON =
+        "#include <common>\n" +
+        "uniform float uGlowI; uniform vec3 uEmi; uniform float uEmiI,uEmiHc,uEmiHw,uEmiSmin,uEmiVmin;\n" +
+        "uniform float uDark,uDarkHc,uDarkHw,uDarkSmin,uDarkVmax;\n" +
+        "uniform float uFade,uFadeHc,uFadeHw,uFadeVmin,uFadeSmax;\n" +
+        "vec3 _hsvF(vec3 c){vec4 K=vec4(0.,-1./3.,2./3.,-1.);vec4 p=mix(vec4(c.bg,K.wz),vec4(c.gb,K.xy),step(c.b,c.g));vec4 q=mix(vec4(p.xyw,c.r),vec4(c.r,p.yzx),step(p.x,c.r));float d=q.x-min(q.w,q.y);return vec3(abs(q.z+(q.w-q.y)/(6.*d+1e-10)),d/(q.x+1e-10),q.x);}";
+      const MOBFX_EMISSIVE =
+        "#include <emissivemap_fragment>\n" +
+        "{ vec3 _h=_hsvF(diffuseColor.rgb); float H=_h.x, S=_h.y, V=_h.z;\n" +
+        "  float ehd=abs(H-uEmiHc); ehd=min(ehd,1.0-ehd);\n" +
+        "  float em=step(ehd,uEmiHw)*step(uEmiSmin,S)*step(uEmiVmin,V);\n" +
+        "  totalEmissiveRadiance += uEmi*uEmiI*em*uGlowI;\n" +
+        "  float dhd=abs(H-uDarkHc); dhd=min(dhd,1.0-dhd);\n" +
+        "  float dm=step(dhd,uDarkHw)*step(uDarkSmin,S)*step(V,uDarkVmax);\n" +
+        "  diffuseColor.rgb *= 1.0 - uDark*dm;\n" +
+        "  float fhd=abs(H-uFadeHc); fhd=min(fhd,1.0-fhd);\n" +
+        "  float fm=step(fhd,uFadeHw)*step(uFadeVmin,V)*step(S,uFadeSmax);\n" +
+        "  diffuseColor.a *= 1.0 - uFade*fm; }";
+      function applyMobFX(root, cfg) {
+        const emi = cfg.emi || {}, dk = cfg.dark || {}, fd = cfg.fade || {};
+        root.traverse((o) => {
+          if (!o.isMesh || !o.material) return;
+          (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => {
+            if (m.emissive && m.emissive.setHex) m.emissive.setHex(0x000000);
+            if (emi.i) m.toneMapped = false;
+            if (fd.a) { m.transparent = true; m.depthWrite = true; }
+            m.userData.glowBase = 1.0;
+            m.onBeforeCompile = (sh) => {
+              sh.uniforms.uGlowI = { value: 1.0 };
+              sh.uniforms.uEmi = { value: new THREE.Color(emi.c || 0xffffff) }; sh.uniforms.uEmiI = { value: emi.i || 0 };
+              sh.uniforms.uEmiHc = { value: emi.hc || 0 }; sh.uniforms.uEmiHw = { value: emi.hw || 0 }; sh.uniforms.uEmiSmin = { value: emi.smin || 0 }; sh.uniforms.uEmiVmin = { value: emi.vmin || 0 };
+              sh.uniforms.uDark = { value: dk.a || 0 }; sh.uniforms.uDarkHc = { value: dk.hc || 0 }; sh.uniforms.uDarkHw = { value: dk.hw || 0 }; sh.uniforms.uDarkSmin = { value: dk.smin || 0 }; sh.uniforms.uDarkVmax = { value: dk.vmax || 1 };
+              sh.uniforms.uFade = { value: fd.a || 0 }; sh.uniforms.uFadeHc = { value: fd.hc || 0 }; sh.uniforms.uFadeHw = { value: fd.hw || 0 }; sh.uniforms.uFadeVmin = { value: fd.vmin || 0 }; sh.uniforms.uFadeSmax = { value: fd.smax || 1 };
+              sh.fragmentShader = sh.fragmentShader.replace("#include <common>", MOBFX_COMMON).replace("#include <emissivemap_fragment>", MOBFX_EMISSIVE);
+              m.userData.glowUniforms = sh.uniforms;
+            };
+            m.needsUpdate = true;
+          });
+        });
+      }
+
+      // ---- Ranged wraith: a thin emissive ARROW (vertical, pointing down) in front of the body. Mirrors the game. ----
+      const RANGED_FX = { glow: 0x8fd0ff, intensity: 2.2, arrow: { len: 0.80, rad: 0.007, pos: [0, 0.0, 0.22], rot: [0, 0, 0] } };
+      function addRangedAccents(root) {
+        const C = RANGED_FX, L = C.arrow.len, R = C.arrow.rad;
+        const m = new THREE.MeshStandardMaterial({ color: 0x000000, emissive: new THREE.Color(C.glow), emissiveIntensity: C.intensity, roughness: 1, metalness: 0, toneMapped: false });
+        const shaft = new THREE.Mesh(new THREE.CylinderGeometry(R, R, L * 0.8, 6), m);
+        const tip = new THREE.Mesh(new THREE.ConeGeometry(R * 2.6, L * 0.20, 8), m); tip.rotation.x = Math.PI; tip.position.y = -L * 0.5; // apex points DOWN
+        const arrow = new THREE.Group(); arrow.add(shaft); arrow.add(tip);
+        arrow.position.set(C.arrow.pos[0], C.arrow.pos[1], C.arrow.pos[2]); arrow.rotation.set(C.arrow.rot[0], C.arrow.rot[1], C.arrow.rot[2]); root.add(arrow);
+      }
+      // ---- Pack Alpha: a small red emissive EYE on the face (face is at +Z). Mirrors the game. ----
+      const ALPHA_FX = { eye: 0xff2412, intensity: 2.6, r: 0.030, pos: [0, 0.06, 0.40] };
+      function addAlphaEye(root) {
+        const C = ALPHA_FX;
+        const m = new THREE.MeshStandardMaterial({ color: 0x000000, emissive: new THREE.Color(C.eye), emissiveIntensity: C.intensity, roughness: 1, metalness: 0, toneMapped: false });
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(C.r, 14, 12), m);
+        eye.position.set(C.pos[0], C.pos[1], C.pos[2]); root.add(eye);
+      }
+      function applyFXFor(file, glowKey, root) { // one entry point shared by grid + single view
+        root.traverse((o) => { if (o.isMesh && o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach((mm) => { if (mm.metalness !== undefined) mm.metalness = 0; if (mm.roughness !== undefined) mm.roughness = 0.85; mm.needsUpdate = true; }); }); // GLBs default to metalness=1 -> force diffuse
+        if (file === "boss-conduit.glb") applyConduitFX(root);
+        else if (MOB_FX_FILE[file]) applyMobFX(root, MOB_FX_FILE[file]);
+        else if (glowKey && GLOW[glowKey]) applyGlow(root, GLOW[glowKey]);
+        if (file === "ranged.glb") addRangedAccents(root);
+        if (file === "boss-alpha.glb") addAlphaEye(root);
+      }
+
+      function label(text, x, y) {
+        const c = document.createElement("canvas"); c.width = 256; c.height = 64;
+        const g = c.getContext("2d"); g.fillStyle = "#e8e4da"; g.font = "bold 24px monospace"; g.textAlign = "center";
+        g.fillText(text, 128, 42);
+        const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthTest: false }));
+        sp.scale.set(2.8, 0.7, 1); sp.position.set(x, y + TARGET_H + 0.4, 0); scene.add(sp);
+      }
+
+      const pivots = [];
+      const loader = new GLTFLoader();
+      let done = 0, total = 0; ROWS.forEach((r) => (total += r.length));
+
+      ROWS.forEach((row, ri) => {
+        const y = ri === 0 ? 0 : ROW_Y; // bottom row on the floor, top row stacked above
+        const startX = -((row.length - 1) / 2) * SPACING;
+        row.forEach(([file, lbl, glowKey], ci) => {
+          const x = startX + ci * SPACING;
+          label(lbl, x, y);
+          loader.load("./mobs/" + file, (gltf) => {
+            const root = gltf.scene;
+            if (SCALE[file]) { const s3 = SCALE[file]; root.scale.set(root.scale.x * s3[0], root.scale.y * s3[1], root.scale.z * s3[2]); } // thicken thin axes before fit/center
+            const box = new THREE.Box3().setFromObject(root), size = new THREE.Vector3(), center = new THREE.Vector3();
+            box.getSize(size); box.getCenter(center);
+            const s = TARGET_H / (Math.max(size.x, size.y, size.z) || 1); // fit the LARGEST dim -> long/flat models (crawler) don't overflow their cell
+            root.position.set(-center.x, -center.y + size.y / 2, -center.z);
+            applyFXFor(file, glowKey, root);
+            const inner = new THREE.Group(); inner.add(root); inner.scale.setScalar(s);
+            const pivot = new THREE.Group(); pivot.add(inner); pivot.position.set(x, y, 0); pivot.rotation.y = FLIP[file] ? Math.PI : 0;
+            pivot.userData.pivot = true; pivot.userData.file = file; pivot.userData.lbl = lbl; pivot.userData.glowKey = glowKey; // click -> single view
+            scene.add(pivot); pivots.push(pivot);
+            done += 1; document.getElementById("info").textContent = `${done}/${total} loaded · each cell fits ${TARGET_H}u · click a model to inspect`;
+            window.__viewerReady = done === total;
+          }, undefined, (err) => { document.getElementById("info").textContent = "ERR " + file; });
+        });
+      });
+
+      function frame() {
+        const halfW = 3.5 * SPACING + 2.9;                    // row half-width + model margin + SVG ruler gutter (left)
+        const lowY = -0.3, highY = ROW_Y + TARGET_H + 0.3;    // vertical span (both rows)
+        const midY = (lowY + highY) / 2, halfH = (highY - lowY) / 2;
+        const vFov = (camera.fov * Math.PI) / 180;
+        const dist = Math.max(halfH / Math.tan(vFov / 2), halfW / (Math.tan(vFov / 2) * camera.aspect)) * 1.06; // fit BOTH width (at this aspect) + height
+        camera.position.set(0, midY, dist); camera.lookAt(0, midY, 0);
+      }
+      frame();
+
+      // ============================== SVG RULER ==============================
+      // A real ruler with tick marks, drawn as SVG in screen space (no geometry in the scene —
+      // replaces the old 1.8u cylinder "pipe" that ran through the models). One ruler per row,
+      // left of the row, projected from world space so it stays true to model heights.
+      const rulerSvg = document.getElementById("ruler");
+      const _pv = new THREE.Vector3();
+      function projectPx(x, y, z, cam) { _pv.set(x, y, z).project(cam); return [(_pv.x * 0.5 + 0.5) * innerWidth, (-_pv.y * 0.5 + 0.5) * innerHeight, _pv.z < 1]; }
+      function rulerMarkup(worldX, baseY, maxH, cam, lbl) {
+        const parts = [];
+        const [bx, by, ok0] = projectPx(worldX, baseY, 0, cam);
+        const [tx, ty, ok1] = projectPx(worldX, baseY + maxH, 0, cam);
+        if (!ok0 || !ok1) return "";
+        parts.push(`<line x1="${bx}" y1="${by}" x2="${tx}" y2="${ty}" stroke="#7d8794" stroke-width="1.5"/>`);
+        for (let h = 0; h <= maxH + 1e-6; h += 0.1) {
+          const major = Math.abs(h % 0.5) < 1e-6 || Math.abs((h % 0.5) - 0.5) < 1e-6;
+          const [px, py] = projectPx(worldX, baseY + h, 0, cam);
+          const len = major ? 14 : 7;
+          parts.push(`<line x1="${px - len}" y1="${py}" x2="${px}" y2="${py}" stroke="#7d8794" stroke-width="${major ? 1.5 : 1}"/>`);
+          if (major) parts.push(`<text x="${px - len - 4}" y="${py + 3.5}" fill="#9aa3ad" font-size="10" font-family="ui-monospace,Menlo,monospace" text-anchor="end">${h.toFixed(1)}</text>`);
+        }
+        if (lbl) parts.push(`<text x="${tx}" y="${ty - 8}" fill="#9aa3ad" font-size="10" font-family="ui-monospace,Menlo,monospace" text-anchor="middle">${lbl}</text>`);
+        return parts.join("");
+      }
+      function drawGridRulers() {
+        const rx = -((8 - 1) / 2) * SPACING - SPACING * 0.5; // just left of each row, inside the framed gutter
+        rulerSvg.innerHTML =
+          rulerMarkup(rx, 0, 2.5, camera, "units") +
+          rulerMarkup(rx, ROW_Y, 2.5, camera, "units");
+      }
+
+      // ============================== SINGLE-MODEL VIEW ==============================
+      // Click a model in the grid -> orbitable close-up loading the RIGGED variant (mobs/rigged/),
+      // with a troubleshooting panel: procedural animation toggles, per-bone FK pose sliders,
+      // Mixamo-style joint spheres (drag to re-place joints, export rig JSON for dev/autorig),
+      // and texture/material tools. Esc or the back button returns to the grid.
+      const panel = document.getElementById("panel");
+      const backBtn = document.getElementById("back");
+      const view = {
+        on: false, scene: null, camera: null, controls: null, model: null, rootGLB: null,
+        bones: [], nodes: [], lines: null, selected: null, selNode: null, editJoints: false, rigged: false,
+        anim: { sway: true, lean: false, flinch: false, speed: 1 }, pose: {}, mats: [], file: null, lbl: null,
+        wire: false, glow: true, raf: 0,
+        grabTune: { reach: 0.5, converge: -0.2, roll: -1.2 }, // grab targets (user-tuned hugger pose, 2026-06-09): reach = fwd fraction of arm length, converge = inward pull, roll = palm about the arm's own axis
+      };
+      // Per-file leg-drive tune (mirrors the game's MOB_SWAY legAmp/legRate)
+      const VIEW_LEGS = { "crawler.glb": { legAmp: 1.5, legRate: 1 }, "boss-tyrant.glb": { legAmp: 1.3, legRate: 0.55 }, "stalker.glb": { legAmp: 1.2, legRate: 1.0, gallop: true }, "spitter.glb": { legAmp: 0.85, legRate: 1.5 }, "boss-alpha.glb": { legAmp: 1.45, legRate: 1.15 } };
+      const legTune = () => VIEW_LEGS[view.file] || { legAmp: 1, legRate: 1 };
+      const VIEW_BIPED = { "ash_dead.glb": 1.25, "ranged.glb": 1.1, "bursar.glb": 1.15, "bursar-popped.glb": 1.15, "shield.glb": 1.0, "shield-broken.glb": 1.0, "brute.glb": 1.3, "boss-warden.glb": 1.25, "boss-colossus.glb": 1.5 }; // biped legAmp per file (mirrors MOB_SWAY legAmp; default 1 like the game)
+      const bipedAmp = () => VIEW_BIPED[view.file] || 1;
+      const VIEW_BIPED_RATE = { "bursar.glb": 0.62, "bursar-popped.glb": 0.62, "shield.glb": 0.8, "brute.glb": 0.55, "boss-warden.glb": 0.5, "boss-colossus.glb": 0.9 }; // biped cadence per file (mirrors MOB_SWAY legRate)
+      const bipedRate = () => VIEW_BIPED_RATE[view.file] || 1;
+      const VIEW_FLOAT = { "wisp.glb": true, "boss-conduit.glb": true }; // floaters: hover + glide bank (mirrors MOB_SWAY float)
+      // Per-file FK pose defaults (the user's exported poses) — preloaded into view.pose so a reload
+      // reproduces the authored pose. Mirrors the game's MOB_GRAB_POSE. Clear with "reset pose".
+      const VIEW_GRAB_POSE = {
+        "hugger.glb": {
+          wristL: { x: 0, y: 0, z: 0.5061 }, handL: { x: 0, y: 1.0472, z: -0.3491 }, handL1: { x: -0.8727, y: 0, z: 0 },
+          wristR: { x: 0, y: 0, z: -0.5411 }, handR: { x: -1.0472, y: -0.1047, z: 0.0873 }, handR1: { x: -0.5934, y: 0, z: 0 },
+        },
+      };
+      const VIEW_DRAPE = { "lurker.glb": { fabAmp: 2.4 } }; // per-file head-led drape (mirrors MOB_SWAY drape/fabAmp; exaggeration pass 2026-06-09)
+      // Per-file grab-tune defaults (mirrors the game's MOB_GRAB_TUNE_T) — preloaded into view.grabTune
+      // + the sliders on file load, so each mob previews with ITS game tune.
+      const VIEW_GRAB_TUNE = {
+        "ash_dead.glb": { reach: 0.55, converge: -0.05, roll: 0 }, // zombie: straight forward thrust, no hugger palm-twist
+        "ranged.glb": { reach: 0.95, converge: 0, roll: 0 }, // revenant: one long straight AIM down its single armL chain (mirrors MOB_GRAB_TUNE_T.ranged)
+        "stalker.glb": { reach: 0.5, converge: 0.4, roll: -0.5 }, // Dracula envelop: strong converge, the arms WRAP around the victim
+      };
+      // rig-editor node: { name, parent: name|null, sphere, bone: THREE.Bone|null }
+      // bone-backed nodes pose with FK sliders; editor-added nodes are export-only (they become
+      // real bones after a re-rig with autorig.py --joints). The tree can BRANCH freely.
+      const JOINT_COLORS = { idle: 0x65d5ff, sel: 0xf8bf48, edit: 0xff8a5a };
+
+      function enterView(file, lbl, glowKey) {
+        view.on = true; view.file = file; view.lbl = lbl; view.selected = null; view.editJoints = false; view.pose = {};
+        view.scene = new THREE.Scene();
+        view.scene.background = new THREE.Color(0x16191d);
+        view.scene.add(new THREE.HemisphereLight(0xffffff, 0x44484a, 2.0));
+        const k2 = new THREE.DirectionalLight(0xffffff, 1.5); k2.position.set(5, 10, 8); view.scene.add(k2);
+        const r2 = new THREE.DirectionalLight(0x90b0ff, 0.6); r2.position.set(-6, 5, -8); view.scene.add(r2);
+        view.scene.add(new THREE.GridHelper(8, 16, 0x404a5a, 0x333842));
+        view.camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.01, 100);
+        view.camera.position.set(0, 1.6, 3.6); // pushed back further once the model's true size is known (buildView)
+        view.controls = new OrbitControls(view.camera, renderer.domElement);
+        view.controls.target.set(0, 1.0, 0);
+        view.controls.update();
+        renderPass.scene = view.scene; renderPass.camera = view.camera;
+        backBtn.style.display = "block"; panel.style.display = "block";
+        document.getElementById("hint").textContent = "orbit: drag · zoom: wheel · click a joint sphere to select";
+        panel.innerHTML = `<h1>${lbl}</h1><div class="dim">loading ${file}…</div>`;
+        // rigged first (joints!), fallback to the static original
+        loader.load("./mobs/rigged/" + file, (g) => buildView(g, file, glowKey, true), undefined,
+          () => loader.load("./mobs/" + file, (g) => buildView(g, file, glowKey, false), undefined,
+            () => { panel.innerHTML = `<h1>${lbl}</h1><div class="dim">failed to load ${file}</div>`; }));
+      }
+      function buildView(gltf, file, glowKey, rigged) {
+        if (!view.on || view.file !== file) return;
+        view.rigged = rigged;
+        const root = gltf.scene; view.rootGLB = root;
+        if (SCALE[file]) { const s3 = SCALE[file]; root.scale.set(root.scale.x * s3[0], root.scale.y * s3[1], root.scale.z * s3[2]); }
+        const box = new THREE.Box3().setFromObject(root), size = new THREE.Vector3(), center = new THREE.Vector3();
+        box.getSize(size); box.getCenter(center);
+        const s = TARGET_H / (size.y || 1);
+        root.position.set(-center.x, -center.y + size.y / 2, -center.z);
+        applyFXFor(file, glowKey, root);
+        view.mats = []; let verts = 0, tris = 0;
+        root.traverse((o) => {
+          if (o.isSkinnedMesh) o.frustumCulled = false;
+          if (o.isMesh && o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => view.mats.push(m));
+          if (o.isMesh && o.geometry && o.geometry.attributes.position) { verts += o.geometry.attributes.position.count; tris += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3; }
+        });
+        const inner = new THREE.Group(); inner.add(root); inner.scale.setScalar(s);
+        const holder = new THREE.Group(); holder.add(inner); holder.rotation.y = FLIP[file] ? Math.PI : 0;
+        view.scene.add(holder); view.model = holder;
+        const wide = Math.max(size.x, size.z) * s; // wide/flat models (crawler) need a farther camera than tall ones
+        view.camera.position.set(0, TARGET_H * 0.75, Math.max(3.6, wide * 1.6 + 1.2));
+        view.controls.target.set(0, TARGET_H * 0.45, 0); view.controls.update();
+        // bones -> rig-editor nodes (+ joint spheres). Parent = nearest Bone ancestor, so the
+        // editor tree mirrors the loaded skeleton (chains AND branches).
+        view.bones = []; root.traverse((o) => { if (o.isBone) view.bones.push(o); });
+        view.scene.updateMatrixWorld(true);
+        const mQ = holder.getWorldQuaternion(new THREE.Quaternion()), w = new THREE.Vector3();
+        view.bones.forEach((b) => {
+          b.userData.restQ = b.quaternion.clone();
+          // grab axes: model-space Y (arm sweep) and X (forward pitch) expressed in this bone's REST local
+          // frame — bone-local Euler axes vary per bone on hand-placed rigs, model axes don't.
+          const qi = b.getWorldQuaternion(new THREE.Quaternion()).invert();
+          b.userData.gAxisY = new THREE.Vector3(0, 1, 0).applyQuaternion(mQ).applyQuaternion(qi).normalize();
+          b.userData.gAxisX = new THREE.Vector3(1, 0, 0).applyQuaternion(mQ).applyQuaternion(qi).normalize();
+          b.userData.gAxisZ = new THREE.Vector3(0, 0, 1).applyQuaternion(mQ).applyQuaternion(qi).normalize(); // model FORWARD in bone-local (leg lift axis)
+          b.userData.gSide = Math.sign(holder.worldToLocal(b.getWorldPosition(w)).x) || 1;
+          const lm = b.name.match(/^leg-([LR])(\d+)/); // leg-* chains -> spider gait
+          if (lm) {
+            b.userData.legSide = lm[1] === "L" ? 1 : -1;
+            b.userData.legIdx = +lm[2];
+            let pL = b.parent; while (pL && !pL.isBone) pL = pL.parent;
+            b.userData.legDepth = (pL && pL.userData && pL.userData.legDepth !== undefined) ? pL.userData.legDepth + 1 : 0;
+          }
+          const bm = b.name.match(/^leg([LR])(?:-|$)/); // legL / legL-b (no dash) -> BIPED zombie gait (mirrors the game)
+          if (bm) {
+            b.userData.bipedSide = bm[1] === "L" ? 1 : -1;
+            let pB2 = b.parent; while (pB2 && !pB2.isBone) pB2 = pB2.parent;
+            b.userData.bipedDepth = (pB2 && pB2.userData && pB2.userData.bipedDepth !== undefined) ? pB2.userData.bipedDepth + 1 : 0;
+          }
+          if (/^bulb/.test(b.name)) b.userData.isBulb = true; // bulb* -> queasy abdomen jiggle
+          if (/^tail/.test(b.name)) { // tail-* -> serpentine wave (mirrors the game)
+            let pT = b.parent; while (pT && !pT.isBone) pT = pT.parent;
+            b.userData.tailDepth = (pT && pT.userData && pT.userData.tailDepth !== undefined) ? pT.userData.tailDepth + 1 : 0;
+          }
+          // arm-chain depth (0 = shoulder-most arm bone). The grab sweep applies mostly at depth 0:
+          // axes are cached at REST, so rotating every link compounds the error down the chain —
+          // that's the "internal rotation" artifact; one big rotation at the root avoids it.
+          if (/^(wrist|hand|arm)/.test(b.name)) {
+            let pB = b.parent; while (pB && !pB.isBone) pB = pB.parent;
+            b.userData.armDepth = (pB && pB.userData && pB.userData.armDepth !== undefined) ? pB.userData.armDepth + 1 : 0;
+          }
+        });
+        view.nodes = [];
+        for (const b of view.bones) {
+          let p = b.parent; while (p && !p.isBone) p = p.parent;
+          view.nodes.push(makeNode(b.name, p ? p.name : null, b));
+        }
+        view.hasLegs = view.bones.some((x) => x.userData.legDepth !== undefined);
+        view.hasBiped = view.bones.some((x) => x.userData.bipedDepth !== undefined);
+        view.grabTune = Object.assign({ reach: 0.5, converge: -0.2, roll: -1.2 }, VIEW_GRAB_TUNE[file] || {}); // per-file tune (mirrors MOB_GRAB_TUNE_T; default = hugger)
+        rebuildLines();
+        computeGrabQs();
+        if (VIEW_GRAB_POSE[file]) view.pose = JSON.parse(JSON.stringify(VIEW_GRAB_POSE[file])); // preload the authored pose
+        buildPanel(verts, Math.round(tris));
+      }
+      function makeNode(name, parent, bone) {
+        const sp = new THREE.Mesh(new THREE.SphereGeometry(0.05, 16, 12),
+          new THREE.MeshBasicMaterial({ color: bone ? JOINT_COLORS.idle : JOINT_COLORS.edit, depthTest: false, transparent: true, opacity: 0.9 }));
+        sp.renderOrder = 10;
+        const node = { name, parent, sphere: sp, bone: bone || null };
+        sp.userData.node = node;
+        if (bone) bone.getWorldPosition(sp.position);
+        view.scene.add(sp);
+        return node;
+      }
+      function rebuildLines() {
+        if (view.lines) { view.scene.remove(view.lines); view.lines.geometry.dispose(); }
+        const lg = new THREE.BufferGeometry();
+        lg.setAttribute("position", new THREE.BufferAttribute(new Float32Array(Math.max(1, view.nodes.length) * 6), 3));
+        view.lines = new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color: 0x65d5ff, transparent: true, opacity: 0.6, depthTest: false }));
+        view.lines.renderOrder = 9; view.scene.add(view.lines);
+      }
+      function nodeByName(n) { return view.nodes.find((x) => x.name === n) || null; }
+      function syncJointGizmos() { // pose mode: bone-backed spheres track bones, editor-only hidden. edit mode: all visible, spheres lead.
+        if (!view.nodes.length) { if (view.lines) view.lines.visible = false; return; }
+        const pos = view.lines.geometry.attributes.position; let li = 0;
+        for (const nd of view.nodes) {
+          nd.sphere.visible = view.showJoints !== false && (view.editJoints || !!nd.bone);
+          if (!view.editJoints && nd.bone) nd.bone.getWorldPosition(nd.sphere.position);
+        }
+        if (view.showJoints === false) { view.lines.visible = false; view.lines.geometry.setDrawRange(0, 0); return; }
+        for (const nd of view.nodes) {
+          if (!nd.parent || !nd.sphere.visible) continue;
+          const pp = nodeByName(nd.parent);
+          if (pp && pp.sphere.visible) { pos.setXYZ(li++, pp.sphere.position.x, pp.sphere.position.y, pp.sphere.position.z); pos.setXYZ(li++, nd.sphere.position.x, nd.sphere.position.y, nd.sphere.position.z); }
+        }
+        pos.needsUpdate = true; view.lines.geometry.setDrawRange(0, li); view.lines.visible = true;
+      }
+      function exitView() {
+        view.on = false;
+        if (tc) { tc.detach(); tc.dispose(); tc = null; } // gizmo belongs to the discarded view scene
+        if (view.controls) view.controls.dispose();
+        view.scene = null; view.model = null; view.bones = []; view.nodes = []; view.lines = null; view.selected = null; view.selNode = null;
+        renderPass.scene = scene; renderPass.camera = camera;
+        backBtn.style.display = "none"; panel.style.display = "none";
+        document.getElementById("hint").textContent = "drag a model to rotate · CLICK a model to inspect it";
+        drawGridRulers();
+      }
+      backBtn.onclick = exitView;
+      addEventListener("keydown", (e) => { if (e.key === "Escape" && view.on) exitView(); });
+
+      // ---- panel UI ----
+      function buildPanel(verts, tris) {
+        panel.innerHTML = `
+          <h1>${view.lbl}</h1>
+          <div class="dim">${view.file} ${view.rigged ? "· <b>rigged</b> (mobs/rigged/)" : "· static original (no rig found)"}</div>
+          <div class="dim">${verts.toLocaleString()} verts · ${tris.toLocaleString()} tris · ${view.bones.length} bones</div>
+          <h2>Animation</h2>
+          <label><input type="checkbox" id="a-sway" ${view.anim.sway ? "checked" : ""}/> idle sway (game's bone drive)</label>
+          <label><input type="checkbox" id="a-lean"/> lean (move)</label>
+          <label><input type="checkbox" id="a-flinch"/> hit flinch (pulses)</label>
+          <label><input type="checkbox" id="a-grab"/> grab / cling (arm bones curl in — hugger attack)</label>
+          <label class="dim">reach <input type="range" id="g-reach" min="0.3" max="1.4" step="0.05" value="${view.grabTune.reach}"/></label>
+          <label class="dim">converge <input type="range" id="g-conv" min="-0.3" max="0.6" step="0.05" value="${view.grabTune.converge}"/></label>
+          <label class="dim">palm roll <input type="range" id="g-roll" min="-1.4" max="1.4" step="0.05" value="${view.grabTune.roll}"/></label>
+          <label><input type="checkbox" id="a-scratch"/> scratch flurry (front leg-1 chains — crawler attack)</label>
+          <button id="g-export">export pose (tune + FK offsets)</button>
+          <textarea id="posejson" style="display:none" readonly></textarea>
+          <label>speed <input type="range" id="a-speed" min="0" max="3" step="0.1" value="1"/></label>
+          <button id="a-bind">bind pose</button>
+          <h2>Joints / Rigging</h2>
+          <label><input type="checkbox" id="j-show" checked/> show joints</label>
+          <div class="dim">${view.bones.length ? "click a sphere to select · sliders pose the selected bone (FK)" : "no bones — static GLB (you can still place joints below and export)"}</div>
+          <div id="jointlist"></div>
+          <label>rot X <input type="range" id="p-x" min="-60" max="60" step="1" value="0" disabled/></label>
+          <label>rot Y <input type="range" id="p-y" min="-60" max="60" step="1" value="0" disabled/></label>
+          <label>rot Z <input type="range" id="p-z" min="-60" max="60" step="1" value="0" disabled/></label>
+          <button id="p-reset">reset pose</button>
+          <button id="j-edit">edit joint positions</button>
+          <div id="j-tools" style="display:none">
+            <div class="dim">drag spheres to place (screen-plane) · ADD CHILD branches off the selected joint (wrists, tendrils, …) · new joints become real bones after a re-rig</div>
+            <label>name <input type="text" id="j-name" placeholder="wrist-L / tendril-1 (avoid dots — three.js strips them)" style="flex:1"/></label>
+            <button id="j-add">+ add child of selected</button>
+            <button id="j-rename">rename</button>
+            <button id="j-del">delete</button>
+            <div class="dim">then: export → save as &lt;mob&gt;-joints.json → <code>blender -b -P dev/autorig/autorig.py -- --in mob.glb --out rigged.glb --joints file.json</code></div>
+            <button id="j-export">export rig JSON</button>
+            <textarea id="rigjson" style="display:none" readonly></textarea>
+          </div>
+          <h2>Textures / Material</h2>
+          <label><input type="checkbox" id="t-wire"/> wireframe</label>
+          <label><input type="checkbox" id="t-glow" checked/> glow FX</label>
+          <label>roughness <input type="range" id="t-rough" min="0" max="1" step="0.05" value="0.85"/></label>
+          <canvas id="texprev" width="256" height="256"></canvas>
+          <div class="dim" id="texinfo"></div>
+          <h2>Sounds</h2>
+          <div class="dim">game audio is procedural (WebAudio in santiago-wrath.html) — per-mob sound preview hooks land when those synths are extracted to a shared module.</div>`;
+        const $ = (id) => document.getElementById(id);
+        $("a-sway").onchange = (e) => (view.anim.sway = e.target.checked);
+        $("a-lean").onchange = (e) => (view.anim.lean = e.target.checked);
+        $("a-flinch").onchange = (e) => (view.anim.flinch = e.target.checked);
+        $("a-grab").onchange = (e) => (view.anim.grab = e.target.checked);
+        $("a-scratch").onchange = (e) => (view.anim.scratch = e.target.checked);
+        $("g-reach").oninput = (e) => { view.grabTune.reach = +e.target.value; computeGrabQs(); };
+        $("g-conv").oninput = (e) => { view.grabTune.converge = +e.target.value; computeGrabQs(); };
+        $("g-roll").oninput = (e) => (view.grabTune.roll = +e.target.value);
+        $("g-export").onclick = () => { // grab tune + manual FK offsets -> MOB_GRAB_TUNE / MOB_GRAB_POSE in the game
+          const data = JSON.stringify({ file: view.file, tune: view.grabTune, pose: view.pose }, null, 1);
+          const ta = $("posejson"); ta.style.display = "block"; ta.value = data;
+          ta.select(); try { document.execCommand("copy"); } catch (e) {}
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(new Blob([data], { type: "application/json" }));
+          a.download = view.file.replace(".glb", "") + "-pose.json"; a.click(); URL.revokeObjectURL(a.href);
+        };
+        $("a-speed").oninput = (e) => (view.anim.speed = +e.target.value);
+        $("a-bind").onclick = () => { view.anim.sway = view.anim.lean = view.anim.flinch = false; $("a-sway").checked = $("a-lean").checked = $("a-flinch").checked = false; view.pose = {}; for (const b of view.bones) b.quaternion.copy(b.userData.restQ); };
+        renderJointList();
+        const pose = (axis, deg) => { if (!view.selected) return; (view.pose[view.selected.name] = view.pose[view.selected.name] || { x: 0, y: 0, z: 0 })[axis] = (deg * Math.PI) / 180; };
+        $("p-x").oninput = (e) => pose("x", +e.target.value); $("p-y").oninput = (e) => pose("y", +e.target.value); $("p-z").oninput = (e) => pose("z", +e.target.value);
+        $("p-reset").onclick = () => { view.pose = {}; $("p-x").value = $("p-y").value = $("p-z").value = 0; };
+        $("j-show").onchange = (e) => (view.showJoints = e.target.checked);
+        $("j-edit").onclick = () => setEditMode(!view.editJoints);
+        $("j-add").onclick = () => addJoint($("j-name").value.trim() || null);
+        $("j-rename").onclick = () => renameJoint($("j-name").value.trim());
+        $("j-del").onclick = () => deleteJoint();
+        $("j-export").onclick = () => {
+          const ta = $("rigjson"); ta.style.display = "block"; ta.value = JSON.stringify(jointJSON(), null, 1);
+          ta.select(); try { document.execCommand("copy"); } catch (e) {}
+          const a = document.createElement("a"); // downloads <mob>-joints.json — drop it in dev/autorig/joints/
+          a.href = URL.createObjectURL(new Blob([ta.value], { type: "application/json" }));
+          a.download = view.file.replace(".glb", "") + "-joints.json"; a.click(); URL.revokeObjectURL(a.href);
+        };
+        $("t-wire").onchange = (e) => { view.wire = e.target.checked; for (const m of view.mats) m.wireframe = view.wire; };
+        $("t-glow").onchange = (e) => { view.glow = e.target.checked; for (const m of view.mats) { const u = m.userData.glowUniforms; if (u && u.uGlowI) u.uGlowI.value = view.glow ? (m.userData.glowBase || 1) : 0; } };
+        $("t-rough").oninput = (e) => { for (const m of view.mats) if (m.roughness !== undefined) m.roughness = +e.target.value; };
+        // texture preview: first basecolor map found
+        const tp = $("texprev"), g2 = tp.getContext("2d");
+        const mapped = view.mats.find((m) => m.map && m.map.image);
+        if (mapped) {
+          const img = mapped.map.image;
+          try { g2.drawImage(img, 0, 0, 256, 256); $("texinfo").textContent = `baseColor ${img.width}×${img.height}`; }
+          catch (e) { $("texinfo").textContent = "texture preview unavailable (" + (img.width || "?") + "×" + (img.height || "?") + ")"; }
+        } else { $("texinfo").textContent = "no texture map found"; }
+      }
+      function renderJointList() { // tree-ordered, indented by depth; click selects
+        const el = document.getElementById("jointlist"); if (!el) return;
+        const depth = (n, d = 0) => (n.parent ? depth(nodeByName(n.parent), d + 1) : d);
+        el.innerHTML = view.nodes.map((n) =>
+          `<div class="joint${view.selNode === n ? " sel" : ""}" data-b="${n.name}" style="margin-left:${depth(n) * 12}px">${n.bone ? "" : "○ "}${n.name}</div>`).join("");
+        el.querySelectorAll(".joint").forEach((j) => (j.onclick = () => selectJoint(j.dataset.b)));
+      }
+      // ---- transform gizmo (standard 3D-software handles): translate ARROWS on the selected joint
+      // sphere in edit mode, rotate RINGS on the selected bone in pose mode (bakes into FK offsets) ----
+      let tc = null;
+      function ensureTC() {
+        if (tc || !view.scene || !view.camera) return tc;
+        tc = new TransformControls(view.camera, renderer.domElement);
+        tc.setSize(0.75);
+        tc.addEventListener("dragging-changed", (e) => {
+          if (view.controls) view.controls.enabled = !e.value;
+          if (!e.value && tc.object && tc.object.isBone) { // rotation finished -> bake into the FK pose (so the drive keeps it)
+            const b = tc.object;
+            const eul = new THREE.Euler().setFromQuaternion(b.userData.restQ.clone().invert().multiply(b.quaternion));
+            view.pose[b.name] = { x: eul.x, y: eul.y, z: eul.z };
+            selectJoint(b.name); // refresh sliders to the baked values
+          }
+        });
+        view.scene.add(tc);
+        return tc;
+      }
+      function attachGizmo() {
+        if (!view.on || !view.selNode) { if (tc) tc.detach(); return; }
+        ensureTC();
+        if (!tc) return;
+        if (view.editJoints) { tc.setMode("translate"); tc.attach(view.selNode.sphere); } // move the joint
+        else if (view.selNode.bone) { tc.setMode("rotate"); tc.attach(view.selNode.bone); } // pose the bone
+        else tc.detach(); // editor-only node in pose mode: nothing to rotate yet
+      }
+      function selectJoint(name) {
+        view.selNode = nodeByName(name);
+        view.selected = view.selNode && view.selNode.bone ? view.selNode.bone : null;
+        for (const nd of view.nodes) nd.sphere.material.color.setHex(nd === view.selNode ? JOINT_COLORS.sel : (nd.bone ? JOINT_COLORS.idle : JOINT_COLORS.edit));
+        const p = (view.selected && view.pose[view.selected.name]) || { x: 0, y: 0, z: 0 };
+        ["x", "y", "z"].forEach((a) => { const el = document.getElementById("p-" + a); if (el) { el.disabled = !view.selected; el.value = Math.round((p[a] * 180) / Math.PI); } });
+        const nameInput = document.getElementById("j-name"); if (nameInput && view.selNode) nameInput.value = view.selNode.name;
+        renderJointList();
+        attachGizmo();
+      }
+      function setEditMode(on) {
+        view.editJoints = on;
+        const eb = document.getElementById("j-edit"); if (eb) eb.classList.toggle("on", on);
+        const tools = document.getElementById("j-tools"); if (tools) tools.style.display = on ? "block" : "none";
+        view.showJoints = on ? true : view.showJoints; // editing needs the spheres visible
+        const sj = document.getElementById("j-show"); if (sj && on) sj.checked = true;
+        if (on) { // edit in BIND pose so exported joints aren't animation-displaced
+          view.anim.sway = view.anim.lean = view.anim.flinch = false; view.pose = {};
+          ["a-sway", "a-lean", "a-flinch"].forEach((id) => { const c = document.getElementById(id); if (c) c.checked = false; });
+          for (const b of view.bones) b.quaternion.copy(b.userData.restQ);
+          if (view.model) view.model.updateMatrixWorld(true);
+          for (const nd of view.nodes) if (nd.bone) nd.bone.getWorldPosition(nd.sphere.position);
+        }
+        for (const nd of view.nodes) nd.sphere.material.color.setHex(nd === view.selNode ? JOINT_COLORS.sel : (nd.bone ? JOINT_COLORS.idle : JOINT_COLORS.edit));
+        attachGizmo(); // swap translate arrows <-> rotate rings with the mode
+      }
+      function uniqueName(base) {
+        let n = base, i = 1;
+        while (nodeByName(n)) n = `${base}.${i++}`;
+        return n;
+      }
+      function addJoint(name) { // branch a new child joint off the selected one
+        if (!view.selNode) return null;
+        const nm = uniqueName(name || view.selNode.name + ".1");
+        const nd = makeNode(nm, view.selNode.name, null);
+        // spawn beside the parent (camera-right + a touch up) so it's immediately visible/grabbable
+        const right = new THREE.Vector3(1, 0, 0).applyQuaternion(view.camera.quaternion);
+        nd.sphere.position.copy(view.selNode.sphere.position).addScaledVector(right, 0.22).add(new THREE.Vector3(0, 0.06, 0));
+        view.nodes.push(nd); rebuildLines(); selectJoint(nm);
+        if (!view.editJoints) setEditMode(true);
+        return nd;
+      }
+      function deleteJoint() { // remove selected; children reparent to its parent
+        const nd = view.selNode; if (!nd) return;
+        for (const c of view.nodes) if (c.parent === nd.name) c.parent = nd.parent;
+        view.scene.remove(nd.sphere);
+        view.nodes.splice(view.nodes.indexOf(nd), 1);
+        view.selNode = null; view.selected = null;
+        rebuildLines(); renderJointList();
+      }
+      function renameJoint(name) {
+        const nd = view.selNode; if (!nd || !name || name === nd.name) return;
+        const nm = uniqueName(name);
+        for (const c of view.nodes) if (c.parent === nd.name) c.parent = nm;
+        nd.name = nm; renderJointList(); selectJoint(nm);
+      }
+      function jointJSON() { // BRANCHED rig export: bones[] with parent links, in ORIGINAL GLB-local space (autorig.py --joints)
+        const out = { file: view.file, space: "glb-local-yup", bones: [] };
+        const w = new THREE.Vector3();
+        for (const nd of view.nodes) {
+          w.copy(nd.sphere.position);
+          view.rootGLB.worldToLocal(w); // undo fit/center/flip wrappers -> original GLB coords
+          out.bones.push({ name: nd.name, parent: nd.parent, head: [+w.x.toFixed(4), +w.y.toFixed(4), +w.z.toFixed(4)] });
+        }
+        return out;
+      }
+      window.__mv = { enterView, exitView, selectJoint, jointJSON, addJoint, deleteJoint, renameJoint, setEditMode, view }; // headless-test hooks
+
+      // ============================== VIEW CUBE (single-model view) ==============================
+      // Inset navigation cube, top-right of the viewport: rendered with its own tiny scene/camera
+      // (synced to the orbit direction), click a face to snap the camera to that axis.
+      const CUBE_S = 92, CUBE_TOP = 10, PANEL_W = 300;
+      const cubeRect = () => [innerWidth - PANEL_W - CUBE_S - 12, CUBE_TOP]; // CSS px, top-left corner
+      function cubeFace(text) {
+        const c = document.createElement("canvas"); c.width = c.height = 128;
+        const g = c.getContext("2d");
+        g.fillStyle = "#2a3038"; g.fillRect(0, 0, 128, 128);
+        g.strokeStyle = "#4a525e"; g.lineWidth = 6; g.strokeRect(3, 3, 122, 122);
+        g.fillStyle = "#cfd4cc"; g.font = "bold 30px monospace"; g.textAlign = "center"; g.textBaseline = "middle";
+        g.fillText(text, 64, 64);
+        return new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c) });
+      }
+      const cubeScene = new THREE.Scene();
+      const cubeMesh = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.5, 1.5),
+        [cubeFace("RIGHT"), cubeFace("LEFT"), cubeFace("TOP"), cubeFace("BOT"), cubeFace("FRONT"), cubeFace("BACK")]); // +X -X +Y -Y +Z -Z
+      cubeScene.add(cubeMesh);
+      const cubeCam = new THREE.PerspectiveCamera(45, 1, 0.1, 10);
+      const _cd = new THREE.Vector3();
+      function renderViewCube() {
+        if (!view.on || !view.camera || !view.controls) return;
+        _cd.copy(view.camera.position).sub(view.controls.target);
+        if (_cd.lengthSq() < 1e-8) return;
+        cubeCam.position.copy(_cd).setLength(3.4); cubeCam.lookAt(0, 0, 0);
+        const [cx, cy] = cubeRect();
+        const sy = innerHeight - cy - CUBE_S; // scissor/viewport origin is bottom-left
+        renderer.autoClear = false;
+        renderer.clearDepth();
+        renderer.setScissorTest(true);
+        renderer.setScissor(cx, sy, CUBE_S, CUBE_S);
+        renderer.setViewport(cx, sy, CUBE_S, CUBE_S);
+        renderer.render(cubeScene, cubeCam);
+        renderer.setScissorTest(false);
+        renderer.setViewport(0, 0, innerWidth, innerHeight);
+        renderer.autoClear = true;
+      }
+      function cubeClick(e) { // true if the click was inside the cube inset (and handled)
+        if (!view.on || !view.camera) return false;
+        const [cx, cy] = cubeRect();
+        if (e.clientX < cx || e.clientX > cx + CUBE_S || e.clientY < cy || e.clientY > cy + CUBE_S) return false;
+        ndc.set(((e.clientX - cx) / CUBE_S) * 2 - 1, -((e.clientY - cy) / CUBE_S) * 2 + 1);
+        raycaster.setFromCamera(ndc, cubeCam);
+        const hit = raycaster.intersectObject(cubeMesh, false)[0];
+        if (!hit || !hit.face) return true;
+        const n = hit.face.normal.clone(); // cube is axis-aligned -> face normal IS the world direction
+        if (Math.abs(n.y) > 0.9) { n.x = 0.02; n.z = 0.02; n.normalize(); } // dodge the gimbal pole on top/bottom
+        const d = view.camera.position.distanceTo(view.controls.target);
+        view.camera.position.copy(view.controls.target).addScaledVector(n, d);
+        view.controls.update();
+        return true;
+      }
+
+      // ---- the game's procedural bone drive, mirrored (MOB_SWAY default amplitudes) ----
+      const DRIVE = { sway: 0.085, pitch: 0.055, lean: 0.20, flinch: 0.30 };
+      const _e1 = new THREE.Euler(), _q1 = new THREE.Quaternion();
+      function driveViewBones(t) {
+        if (!view.bones.length) return;
+        const byName = {}; for (const b of view.bones) byName[b.name] = b;
+        const ph = t * 2.0 * view.anim.speed;
+        const swy = view.anim.sway ? Math.sin(ph) : 0, lg = view.anim.sway ? Math.sin(ph - 0.5) : 0;
+        const mv = view.anim.lean ? 1 : 0;
+        const fl = view.anim.flinch ? Math.max(0, Math.sin(t * 2.5)) ** 18 : 0;
+        const gs0 = (view.__grabS = (view.__grabS || 0) + ((view.anim.grab ? 1 : 0) - (view.__grabS || 0)) * 0.07); // smoothed grab 0..1
+        // strike (mirrors the game's mobStrikeEnv): one-shot flare OPEN -> SNAP shut -> pump the hold
+        const sT = (view.__strikeT = view.anim.grab ? (view.__strikeT || 0) + 0.0166 * view.anim.speed : 0);
+        const stk = VIEW_STRIKE[view.file] || { env: strikeEnv }; // per-file attack anim (mirrors MOB_STRIKE); default = hugger flare
+        const gsRaw = gs0 * (sT > 0 ? stk.env(sT) : 1);
+        // base floor rides the SWAY checkbox (the "alive" master toggle), not the grab blend: in game the
+        // floor is unconditional (a zombie always walks arms-forward), so sway-on previews game truth even
+        // with grab off; uncheck sway for bind-pose inspection (it already freezes gait/jiggle the same way).
+        const gs = stk.base !== undefined ? Math.max(stk.base * (view.anim.sway ? 1 : 0), gsRaw) : gsRaw, slam = Math.max(0, gs - 1), gsC = Math.min(1, gs), gsOn = Math.abs(gs) > 0.002;
+        const skipB = tc && tc.dragging && tc.object && tc.object.isBone ? tc.object : null; // bone under the rotate gizmo: let the user's drag win
+        const set = (b, rx, ry, rz) => {
+          if (!b || !b.userData.restQ || b === skipB) return;
+          const man = view.pose[b.name];
+          _e1.set(rx + (man ? man.x : 0), ry + (man ? man.y : 0), rz + (man ? man.z : 0));
+          _q1.setFromEuler(_e1);
+          b.quaternion.copy(b.userData.restQ).multiply(_q1);
+        };
+        const sc = (view.__scrS = (view.__scrS || 0) + ((view.anim.scratch ? 1 : 0) - (view.__scrS || 0)) * 0.1); // smoothed scratch 0..1
+        set(byName.root, 0, 0, 0);
+        set(byName.spine, DRIVE.pitch * swy + DRIVE.lean * mv + DRIVE.flinch * fl, 0, DRIVE.sway * swy);
+        set(byName.chest, DRIVE.pitch * 0.8 * lg + DRIVE.lean * 0.35 * mv, 0, DRIVE.sway * 0.8 * lg);
+        set(byName.head, -DRIVE.pitch * lg - DRIVE.flinch * 0.8 * fl, 0, -DRIVE.sway * 0.5 * lg);
+        if (view.hasLegs) { // crab WEIGHT-SHIFT (mirrors the game, crawler legAmp baked): flat-top roll synced to the steps
+          const crab = Math.tanh(2.4 * Math.sin(ph * 2.5)) * (0.2 + 0.8 * mv) * 1.5 * (view.anim.sway ? 1 : 0);
+          grabPose(byName.spine, -0.035 * crab, 0, 0.065 * crab);
+          grabPose(byName.chest, 0, 0, 0.05 * crab);
+        }
+        if (sc > 0.01) { grabPose(byName.spine, 0, 0.10 * sc); grabPose(byName.chest, 0, 0.14 * sc); } // scratch: pitch into the target
+        if (view.hasLegs && view.model) { // SCUTTLE-in-place preview v2 (mirrors the game): propulsion summed from the PLANTED legs' power strokes
+          const onM = view.anim.sway ? 1 : 0, spd = 0.1 + 0.9 * mv, LT = legTune();
+          let push = 0, sideLoad = 0, nL = 0;
+          for (const lb of view.bones) {
+            if (lb.userData.legDepth !== 0) continue;
+            const ls2 = lb.userData.legSide || 1, li2 = lb.userData.legIdx || 1;
+            const lp2 = ph * 5.0 * LT.legRate + ((li2 + (ls2 > 0 ? 0 : 1)) % 2) * Math.PI + li2 * 0.45;
+            const active = li2 === 1 ? 1 - sc : 1;
+            const planted = Math.max(0, -Math.cos(lp2));
+            push += planted * planted * active; sideLoad += planted * planted * ls2 * active; nL += active;
+          }
+          if (nL > 0.01) {
+            const v = push / nL - 0.25;
+            view.__lurch = ((view.__lurch || 0) + v * 0.0166 * view.anim.speed * 1.7 * LT.legAmp * spd * onM) * Math.exp(-0.0166 * 4.0);
+            view.model.position.set(0.03 * (sideLoad / nL) * LT.legAmp * spd * onM, 0.05 * v * LT.legAmp * spd * onM, Math.max(-0.12, Math.min(0.12, view.__lurch)));
+          }
+        } else if (legTune().gallop && view.model) { // BOUND-in-place preview (mirrors the game): body surges with each claw stroke + spine flex
+          const onM = view.anim.sway ? 1 : 0, spd = 0.1 + 0.9 * mv, LT = legTune();
+          const gph = ph * 4.2 * LT.legRate - 0.5;
+          const power = Math.max(0, Math.sin(gph)), v = power * power - 0.25;
+          view.__lurch = ((view.__lurch || 0) + v * 0.0166 * view.anim.speed * 2.4 * LT.legAmp * spd * onM) * Math.exp(-0.0166 * 4.5);
+          view.model.position.set(0, 0.06 * v * LT.legAmp * spd * onM, Math.max(-0.14, Math.min(0.14, view.__lurch)));
+          grabPose(byName.spine, 0, 0.09 * Math.sin(gph - 0.4) * spd * onM);
+          grabPose(byName.chest, 0, 0.12 * Math.sin(gph - 0.7) * spd * onM);
+        }
+        if (VIEW_FLOAT[view.file] && view.model) { // FLOATERS (mirrors the game): two-sine hover + glide pitch + lazy yaw drift
+          const onF = view.anim.sway ? 1 : 0;
+          const fph = ph * 0.45; // ph = t*2 -> matches the game's _ts*0.9
+          view.model.position.y = (Math.sin(fph) * 0.10 + Math.sin(fph * 0.53 + 1.2) * 0.04) * onF;
+          grabPose(byName.spine, 0.05 * Math.sin(fph * 0.7) * onF, (0.16 * mv + 0.04 * Math.sin(fph * 0.6 + 2)) * onF);
+        }
+        if (view.hasBiped) { // zombie WEIGHT-SHIFT (mirrors the game): torso rolls onto the planted side each stride
+          const zsh = Math.sin(ph * 1.7 * bipedRate() - 0.6) * (0.15 + 0.85 * mv) * bipedAmp() * (view.anim.sway ? 1 : 0); // per-file legAmp + cadence (VIEW_BIPED / _RATE)
+          grabPose(byName.spine, 0, 0, 0.07 * zsh); grabPose(byName.chest, 0, 0, 0.05 * zsh); grabPose(byName.head, 0, 0, -0.05 * zsh);
+        }
+        const drape = VIEW_DRAPE[view.file];
+        if (drape) { // HEAD-LED wraith (mirrors the game; lean checkbox = moving): the diamond pitches into the glide, the cloak trails
+          const dl = Math.min(1, mv * 1.3);
+          grabPose(byName.head, 0, 0.48 * dl); grabPose(byName.chest, 0, -0.13 * dl); grabPose(byName.spine, 0, -0.22 * dl);
+        }
+        if (gsOn) { grabPose(byName.spine, 0, 0.10 * gs + 0.20 * slam); grabPose(byName.chest, 0, 0.16 * gs + 0.25 * slam); } // lean-in (rears back while negative); slam doubles over for the hit
+        if (slam > 0) grabPose(byName.head, 0, 0.5 * slam); // head CHOMPS down with the overshoot (mirrors the game)
+        for (const b of view.bones) { // branch bones (wrists/tendrils/...): traveling follow-through, deeper = later phase
+          if (b.name === "root" || b.name === "spine" || b.name === "chest" || b.name === "head") continue;
+          if (b === skipB) continue; // user is rotate-dragging this one
+          if (b.userData.depth === undefined) { let d = 0, p = b.parent; while (p && p.isBone) { d += 1; p = p.parent; } b.userData.depth = d; }
+          const d = b.userData.depth, on = view.anim.sway ? 1 : 0;
+          const a = DRIVE.sway * 1.1 * on + DRIVE.flinch * 0.5 * fl;
+          if (b.userData.isBulb) { // BULB jiggle (mirrors the game): incommensurate sines + scale pulse, gated by the sway checkbox
+            const bn = view.anim.sway ? 1 : 0;
+            set(b, 0.07 * Math.sin(ph * 0.9) * bn, 0, 0.06 * Math.sin(ph * 0.7 + 1.7) * bn);
+            b.scale.set(1 + 0.06 * Math.sin(ph * 0.8 + 0.3) * bn, 1 + 0.05 * Math.sin(ph * 1.1 + 2.1) * bn, 1 + 0.05 * Math.sin(ph * 1.3 + 4.2) * bn);
+            continue;
+          }
+          if (b.userData.legDepth !== undefined) { // SPIDER GAIT (mirrors the game, per-file legAmp/legRate): lean checkbox = moving
+            const ls = b.userData.legSide || 1, li = b.userData.legIdx || 1, LT = legTune();
+            const scrF = li === 1 ? sc : 0; // front pair trades the gait for the scratch flurry
+            const lp = ph * 5.0 * LT.legRate + ((li + (ls > 0 ? 0 : 1)) % 2) * Math.PI + li * 0.45;
+            const stepM = (0.12 + 0.88 * mv) * LT.legAmp * (view.anim.sway ? 1 : 0) * (1 - scrF);
+            const sw = Math.sin(lp) * 0.38 * stepM, lift = Math.max(0, Math.cos(lp));
+            const lf = lift * lift * 0.34 * stepM;
+            set(b, 0, 0, 0);
+            if (b.userData.legDepth === 0) grabPose(b, sw, 0, -ls * lf);
+            else grabPose(b, -sw * 0.55, 0, ls * lf * 1.1);
+            if (scrF > 0.01) { // FLURRY: fast alternating raise-and-slash, whip amplifying toward the claw tip
+              const fph = ph * 7 + (ls > 0 ? 0 : Math.PI) - (b.userData.legDepth || 0) * 0.55;
+              const sl = Math.sin(fph), dn = Math.max(0, -sl);
+              const k = b.userData.legDepth === 0 ? 1 : 1.35;
+              grabPose(b, 0.22 * scrF * sl * k, (-0.4 * dn * dn * k - 0.12) * scrF, -ls * 0.08 * scrF);
+            }
+            continue;
+          }
+          if (b.userData.bipedDepth !== undefined) { // BIPED ZOMBIE GAIT (mirrors the game): lean checkbox = moving
+            const bs = b.userData.bipedSide || 1;
+            const blp = ph * 1.7 * bipedRate() + (bs > 0 ? 0 : Math.PI);
+            const bstep = (0.15 + 0.85 * mv) * bipedAmp() * (view.anim.sway ? 1 : 0); // per-file legAmp (VIEW_BIPED)
+            set(b, 0, 0, 0);
+            if (b.userData.bipedDepth === 0) grabPose(b, 0, Math.sin(blp) * 0.32 * bstep);
+            else if (b.userData.bipedDepth === 1) { const kc = Math.max(0, Math.cos(blp - 0.5)); grabPose(b, 0, -kc * kc * 0.42 * bstep); }
+            else { const kc = Math.max(0, Math.cos(blp - 0.5)); grabPose(b, 0, kc * kc * 0.2 * bstep); } // foot: partial counter-flex -> toes drag (mirrors the game)
+            continue;
+          }
+          if (b.userData.tailDepth !== undefined) { // SERPENTINE tail (mirrors the game): traveling lateral wave, widening to the tip
+            const td = b.userData.tailDepth || 0, LT2 = legTune();
+            const tAmp = (0.16 + 0.14 * td) * (0.35 + 0.65 * mv) * LT2.legAmp * (view.anim.sway ? 1 : 0);
+            const tph = ph * 2.6 * LT2.legRate - td * 1.15;
+            set(b, 0, 0, 0);
+            grabPose(b, tAmp * Math.sin(tph), 0.06 * (1 + 0.3 * td) * Math.sin(tph * 0.5 + 1.0), 0);
+            continue;
+          }
+          if (legTune().gallop && b.userData.armDepth !== undefined) { // CHEETAH GALLOP (mirrors the game): claw-over-claw strokes; the ENVELOP grab takes the arms over
+            const LT2 = legTune(), gd = b.userData.armDepth, gside = b.userData.gSide || 1;
+            const gph = ph * 4.2 * LT2.legRate + (gside > 0 ? 0 : 0.4) - gd * 0.55;
+            const gW = Math.max(0, 1 - Math.abs(gs));
+            const gAmp = (0.1 + 0.9 * mv) * LT2.legAmp * (view.anim.sway ? 1 : 0) * gW;
+            const stroke = Math.sin(gph) - 0.35 * Math.sin(2 * gph);
+            set(b, 0, 0, 0);
+            grabPose(b, -gside * 0.06 * gAmp * Math.sin(gph), (gd === 0 ? 0.42 : gd === 1 ? 0.30 : 0.36) * stroke * gAmp, 0);
+            if (gsOn && b.userData.grabQ) { // Dracula envelop preview (grab checkbox): flare wide then wrap shut
+              const fr = gd === 0 ? 1 : gd === 1 ? 0.5 : 0.25;
+              b.quaternion.multiply(_gq.slerpQuaternions(_ID, b.userData.grabQ, gsC));
+              if (view.grabTune.roll) b.quaternion.multiply(_gq.setFromAxisAngle(_gAxis, gside * view.grabTune.roll * gs * fr));
+              if (slam > 0) grabPose(b, 0, (gd === 0 ? 0.45 : 0.2) * slam);
+            }
+            continue;
+          }
+          const arm = b.userData.armDepth !== undefined;
+          const wave = arm ? Math.max(0, Math.min(1, 1 - gs)) : 1; // clamped: the negative flare must not amplify the idle wave
+          let rx = a * Math.sin(ph - d * 0.7) * wave, rz = a * 0.6 * Math.sin(ph - d * 0.7 - 0.4) * wave;
+          if (arm) { // FLOATY arms (mirrors the game): slower, larger secondary drift, grows with movement ("lean" checkbox = moving)
+            const fa = DRIVE.sway * 2.0 * (1 + 0.3 * (b.userData.armDepth || 0)) * (0.7 + 0.5 * mv) * wave * on;
+            rx += fa * Math.sin(ph * 0.45 - d * 0.6);
+            rz += fa * 0.8 * Math.sin(ph * 0.45 - d * 0.6 - 0.7);
+          }
+          let drapeFb = 0;
+          if (drape && !arm) { // DRAPE fabric (mirrors the game): small local shimmer — the main flap is the model -Z billow below
+            drapeFb = DRIVE.sway * (drape.fabAmp || 1.5) * (1 + 0.4 * d) * (0.45 + 0.55 * mv) * on;
+            rx += drapeFb * 0.35 * Math.sin(ph * 0.42 - d * 0.85);
+            rz += drapeFb * 0.3 * Math.sin(ph * 0.42 - d * 0.85 - 0.9);
+          }
+          set(b, rx, 0, rz);
+          if (drape && !arm) grabPose(b, 0, -drapeFb * 0.9 * (0.55 + Math.sin(ph * 0.42 - d * 0.85)) - (0.15 + 0.075 * d) * Math.min(1, mv * 1.3)); // BILLOW biased to model -Z + wake-TRAIL (mirrors the game)
+          if (arm && gsOn && b.userData.grabQ) { // baked aim pose (one-pass CCD toward a front target) blended in (negative gsC extrapolates OPEN past rest)
+            const dep = b.userData.armDepth, fr = dep === 0 ? 1 : dep === 1 ? 0.5 : 0.25;
+            b.quaternion.multiply(_gq.slerpQuaternions(_ID, b.userData.grabQ, gsC));
+            if (view.grabTune.roll) b.quaternion.multiply(_gq.setFromAxisAngle(_gAxis, b.userData.gSide * view.grabTune.roll * gs * fr));
+            if (slam > 0) grabPose(b, 0, (dep === 0 ? 0.45 : 0.2) * slam); // the HIT: arms drive down-forward past the hold
+          }
+        }
+      }
+      function strikeEnv(t) { // mirrors the game's mobStrikeEnv: one-shot flare OPEN (negative) -> SNAP shut -> pump the hold
+        if (t < 0.42) { const q = t / 0.42; return -0.55 * (q * q * (3 - 2 * q)); }
+        if (t < 0.68) { const q = (t - 0.42) / 0.26; return -0.55 + 1.9 * q * q * q; }
+        if (t < 0.95) { const q = (t - 0.68) / 0.27; return 1.35 - 0.35 * (q * q * (3 - 2 * q)); }
+        return 1 + 0.16 * Math.sin((t - 0.95) * (Math.PI * 2 / 0.7));
+      }
+      function biteEnv(t) { // mirrors the game's mobBiteEnv (ash-dead zombie): rear -> LUNGE past full reach -> recover, repeating
+        const T = 1.25, p = (t % T) / T;
+        if (p < 0.30) { const q = p / 0.30; return 1 - 0.45 * (q * q * (3 - 2 * q)); }
+        if (p < 0.42) { const q = (p - 0.30) / 0.12; return 0.55 + 0.95 * q * q * q; }
+        if (p < 0.70) { const q = (p - 0.42) / 0.28; return 1.5 - 0.5 * (q * q * (3 - 2 * q)); }
+        return 1;
+      }
+      function castEnv(t) { // mirrors the game's ranged CAST overlay: hold the 0.85 AIM through strafe/reload -> the 0.45s windup eases to 1.0 -> FIRE snaps 1.5 (slam -> head-whip + lean) -> recoil settles back onto the aim (free-running at the ~2.55s reload cadence; in game the snap is synced to the real fire frame)
+        const T = 2.55, p = (t % T) / T;
+        if (p < 0.55) return 0.85;
+        if (p < 0.726) { const q = (p - 0.55) / 0.176; return 0.85 + 0.15 * q * q; } // windup charge
+        if (p < 0.75) { const q = (p - 0.726) / 0.024; return 1.0 + 0.5 * q; } // FIRE snap
+        if (p < 0.95) { const q = (p - 0.75) / 0.2; return 0.85 + 0.65 * Math.pow(1 - q, 3); } // recoil settle
+        return 0.85;
+      }
+      const VIEW_STRIKE = { "ash_dead.glb": { env: biteEnv, base: 0.55 }, "ranged.glb": { env: castEnv, base: 0.45 } }; // per-file attack anim (mirrors the game's MOB_STRIKE + the ranged windup overlay)
+      const _gq = new THREE.Quaternion(), _gAxis = new THREE.Vector3(0, 1, 0), _ID = new THREE.Quaternion();
+      function grabPose(b, angY, angX, angZ) { // model-space rotations: Y = vertical sweep, X = fwd pitch, Z = roll about model-forward (leg lift)
+        if (!b || !b.userData.gAxisY) return;
+        if (angY) b.quaternion.multiply(_gq.setFromAxisAngle(b.userData.gAxisY, angY));
+        if (angX) b.quaternion.multiply(_gq.setFromAxisAngle(b.userData.gAxisX, angX));
+        if (angZ && b.userData.gAxisZ) b.quaternion.multiply(_gq.setFromAxisAngle(b.userData.gAxisZ, angZ));
+      }
+      // Bake the grab pose: aim each ARM CHAIN at a point in front of the body (target derived from
+      // the chain's own length + the model's forward axis -> no per-model tuning, fingers face the
+      // target BY CONSTRUCTION). One-pass CCD at rest, stored as per-bone local deltas (grabQ),
+      // blended at runtime. Recomputed when the reach/converge sliders move.
+      function computeGrabQs() {
+        if (!view.model || !view.bones.length) return;
+        for (const b of view.bones) b.quaternion.copy(b.userData.restQ);
+        view.model.updateMatrixWorld(true);
+        const innerQ = view.model.getWorldQuaternion(new THREE.Quaternion());
+        const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(innerQ);
+        const right = new THREE.Vector3(1, 0, 0).applyQuaternion(innerQ);
+        const tmpQ = new THREE.Quaternion(), pwq = new THREE.Quaternion();
+        for (const root of view.bones.filter((b) => b.userData.armDepth === 0)) {
+          const chain = [root];
+          for (let cur = root; ; ) { const nxt = cur.children.find((c) => c.isBone && c.userData.armDepth !== undefined); if (!nxt) break; chain.push(nxt); cur = nxt; }
+          const P = chain.map((b) => b.getWorldPosition(new THREE.Vector3()));
+          let len = 0; for (let i = 1; i < P.length; i += 1) len += P[i].distanceTo(P[i - 1]);
+          len += (chain.length > 1 ? len / (chain.length - 1) : 0.3) * 0.7; // claw extends past the last joint
+          const side = root.userData.gSide || 1, T = view.grabTune;
+          const target = P[0].clone().addScaledVector(fwd, len * T.reach).addScaledVector(right, -side * len * T.converge).add(new THREE.Vector3(0, len * 0.05, 0));
+          const F = [1, 0.55, 0.3];
+          for (let i = 0; i < chain.length; i += 1) {
+            const b = chain[i];
+            const bp = b.getWorldPosition(new THREE.Vector3());
+            const tip = i + 1 < chain.length
+              ? chain[i + 1].getWorldPosition(new THREE.Vector3())
+              : bp.clone().add(new THREE.Vector3(0, 0.2, 0).applyQuaternion(b.getWorldQuaternion(tmpQ))); // last bone: its own +Y axis
+            tmpQ.setFromUnitVectors(tip.sub(bp).normalize(), target.clone().sub(bp).normalize());
+            tmpQ.slerp(_ID, 1 - (F[i] !== undefined ? F[i] : 0.25)); // falloff down the chain
+            b.parent.getWorldQuaternion(pwq);
+            b.quaternion.premultiply(pwq.clone().invert().multiply(tmpQ).multiply(pwq));
+            b.updateMatrixWorld(true);
+          }
+          for (const b of chain) {
+            b.userData.grabQ = b.userData.restQ.clone().invert().multiply(b.quaternion);
+            b.quaternion.copy(b.userData.restQ);
+          }
+        }
+        view.model.updateMatrixWorld(true);
+      }
+
+      // ---- pointer: grid = click-to-inspect vs drag-to-rotate; view = joint pick/drag ----
+      const raycaster = new THREE.Raycaster(), ndc = new THREE.Vector2();
+      let dragging = null, lastX = 0, downAt = 0, downXY = [0, 0];
+      let dragSphere = null; const dragPlane = new THREE.Plane(), dragPoint = new THREE.Vector3();
+      const cv = renderer.domElement;
+      cv.addEventListener("pointerdown", (e) => {
+        ndc.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+        downAt = performance.now(); downXY = [e.clientX, e.clientY];
+        if (view.on) {
+          if (tc && (tc.dragging || tc.axis)) return; // gizmo owns this pointer interaction
+          if (cubeClick(e)) return; // view-cube face snap
+          if (!view.nodes.length) return;
+          raycaster.setFromCamera(ndc, view.camera);
+          const hits = raycaster.intersectObjects(view.nodes.filter((n) => n.sphere.visible).map((n) => n.sphere), false);
+          if (hits.length) {
+            const sp = hits[0].object;
+            selectJoint(sp.userData.node.name);
+            if (view.editJoints) {
+              dragSphere = sp; view.controls.enabled = false;
+              dragPlane.setFromNormalAndCoplanarPoint(view.camera.getWorldDirection(new THREE.Vector3()), sp.position);
+            }
+          }
+          return;
+        }
+        raycaster.setFromCamera(ndc, camera);
+        const hits = raycaster.intersectObjects(pivots, true);
+        if (hits.length) { let o = hits[0].object; while (o && !o.userData.pivot) o = o.parent; if (o) { dragging = o; lastX = e.clientX; cv.classList.add("grabbing"); } }
+      });
+      window.addEventListener("pointermove", (e) => {
+        if (dragging) { dragging.rotation.y += (e.clientX - lastX) * 0.012; lastX = e.clientX; }
+        if (dragSphere) {
+          ndc.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+          raycaster.setFromCamera(ndc, view.camera);
+          if (raycaster.ray.intersectPlane(dragPlane, dragPoint)) dragSphere.position.copy(dragPoint);
+        }
+      });
+      window.addEventListener("pointerup", (e) => {
+        if (dragging) {
+          const moved = Math.hypot(e.clientX - downXY[0], e.clientY - downXY[1]);
+          const quick = performance.now() - downAt < 350;
+          const p = dragging; dragging = null; cv.classList.remove("grabbing");
+          if (moved < 5 && quick && p.userData.file) enterView(p.userData.file, p.userData.lbl, p.userData.glowKey); // a CLICK, not a drag
+        }
+        if (dragSphere) { dragSphere = null; if (view.controls) view.controls.enabled = true; }
+      });
+
+      addEventListener("resize", () => {
+        camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+        if (view.camera) { view.camera.aspect = innerWidth / innerHeight; view.camera.updateProjectionMatrix(); }
+        renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight);
+        if (!view.on) { frame(); drawGridRulers(); }
+      });
+      const glowPulseMats = () => { const out = []; scene.traverse((o) => { if (o.isMesh && o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => { if (m.userData.glowUniforms) out.push(m); } ); }); return out; };
+      function loop(tms) {
+        requestAnimationFrame(loop);
+        const t = (tms || 0) / 1000;
+        if (view.on && view.scene) {
+          driveViewBones(t);
+          syncJointGizmos();
+          if (view.controls) view.controls.update();
+          // single-view ruler: a live SVG ruler beside the model (re-projected as the camera orbits)
+          rulerSvg.innerHTML = rulerMarkup(-1.55, 0, 2.5, view.camera, "units");
+        }
+        composer.render();
+        renderViewCube(); // inset, after the post chain so bloom doesn't touch it
+      }
+      loop(0);
+      let _rulerKick = 0; const _rulerTimer = setInterval(() => { if (!view.on) { drawGridRulers(); if (++_rulerKick > 6) clearInterval(_rulerTimer); } }, 500); // settle after loads
+      drawGridRulers();
+      // headless camera control
+      window.__view = (px, py, pz, lx, ly, lz) => { camera.position.set(px, py, pz); camera.lookAt(lx, ly, lz); };
+      // deep link: ?m=<file.glb> opens single view directly
+      const deepM = new URLSearchParams(location.search).get("m");
+      if (deepM) { const all = ROWS.flat(); const hit = all.find((r) => r[0] === deepM || r[1] === deepM); if (hit) setTimeout(() => enterView(hit[0], hit[1], hit[2]), 400); }
+    </script>
+  </body>
+</html>
