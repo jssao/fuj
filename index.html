@@ -8,7 +8,7 @@
     />
     <meta
       name="description"
-      content="Santiago's Wrath is a God-of-War-inspired birthday climb game built for Santiago."
+      content="Santiago's Wrath is a God-of-War-inspired mythic climb-and-carnage arcade game."
     />
     <meta name="theme-color" content="#050302" />
     <title>Santiago's Wrath</title>
@@ -503,6 +503,29 @@
           0 16px 52px rgba(0, 0, 0, 0.42);
       }
 
+      /* Boss-gated bank still sealed: chips accumulate but can't be cast yet — desaturate +
+         badge it so the bar reads locked until the section boss falls. */
+      .special-bar.sealed {
+        filter: saturate(0.3) brightness(0.8);
+      }
+      .special-bar.sealed::after {
+        content: "SEALED";
+        display: grid;
+        place-items: center;
+        position: sticky;
+        bottom: 4px;
+        width: max-content;
+        margin: 0 auto;
+        padding: 3px 9px;
+        border: 1px solid rgba(255, 246, 232, 0.22);
+        border-radius: 999px;
+        background: rgba(8, 5, 4, 0.78);
+        color: rgba(255, 246, 232, 0.72);
+        font-size: 9px;
+        font-weight: 900;
+        letter-spacing: 0.12em;
+      }
+
       .special-bar.empty {
         display: grid;
         place-items: center;
@@ -649,8 +672,7 @@
           0 16px 52px rgba(0, 0, 0, 0.42);
       }
 
-      .special-btn,
-      .interact-btn {
+      .special-btn {
         width: clamp(76px, 19vw, 98px);
         height: 48px;
         border-radius: 999px;
@@ -658,17 +680,6 @@
         font-size: 9px;
         line-height: 1.05;
         text-align: center;
-      }
-
-      .interact-btn {
-        display: none;
-        background:
-          radial-gradient(circle at 36% 28%, rgba(255, 255, 255, 0.28), transparent 24%),
-          linear-gradient(145deg, rgba(30, 77, 96, 0.95), rgba(16, 22, 18, 0.88));
-      }
-
-      .interact-btn.visible {
-        display: grid;
       }
 
       .throw-btn {
@@ -994,6 +1005,9 @@
         <div class="pause-card">
           <strong>PAUSED</strong>
           <span>Press ESC to resume</span>
+          <!-- .log-btn (not .ghost-btn): it sets pointer-events:auto, required because .pause-overlay is pointer-events:none -->
+          <button class="log-btn" id="pauseCopyLogBtn" type="button">Copy log</button>
+          <button class="log-btn" id="pauseDownloadLogBtn" type="button">Download log</button>
         </div>
       </div>
       <div class="floaters" id="floaters"></div>
@@ -1063,7 +1077,6 @@
               </div>
             </div>
             <div class="buttons">
-              <button class="round-btn interact-btn" id="interactBtn" type="button">Open</button>
               <button class="round-btn attack-btn" id="attackBtn" type="button">Swing</button>
             </div>
           </div>
@@ -1110,7 +1123,6 @@
       const startBtn = document.getElementById("startBtn");
       const attackBtn = document.getElementById("attackBtn");
       const specialBtn = document.getElementById("specialBtn");
-      const interactBtn = document.getElementById("interactBtn");
       const logBtn = document.getElementById("logBtn");
       const logPanel = document.getElementById("logPanel");
       const logText = document.getElementById("logText");
@@ -1155,7 +1167,7 @@
 
       const scene = new THREE.Scene();
       // Shadow-of-the-Colossus "Forbidden Lands" daytime: a pale, luminous sage-grey haze the
-      // world dissolves into (the fog colour must be bright, never dark). Combat/night/birthday
+      // world dissolves into (the fog colour must be bright, never dark). Combat/night
       // themes still override this; the SotC film grade sits on top of whatever theme is active.
       scene.background = new THREE.Color(0x6b6f62);
       scene.fog = new THREE.FogExp2(0x6b6f62, 0.014); // lightened (user: fog too dense)
@@ -1444,6 +1456,11 @@
         game.paused = !game.paused;
         const ov = document.getElementById("pauseOverlay");
         if (ov) ov.classList.toggle("visible", game.paused);
+        if (game.paused && typeof resetTransientInput === "function") {
+          // Cancel an in-flight charge + held keys: charge time is WALL-CLOCK, so pausing
+          // mid-hold used to bank a free full charge for the resume.
+          resetTransientInput();
+        }
         if (audio.ctx) {
           if (game.paused) audio.ctx.suspend();
           else resumeAudio();
@@ -1748,8 +1765,6 @@
         stoneDark: new THREE.MeshStandardMaterial({ color: 0x545147, roughness: 0.98 }),
         rune: new THREE.MeshBasicMaterial({ color: 0x65d5ff }),
         gold: new THREE.MeshStandardMaterial({ color: 0xf8bf48, roughness: 0.48, metalness: 0.2 }),
-        presentRed: new THREE.MeshStandardMaterial({ color: 0xb3131b, roughness: 0.66 }),
-        presentGold: new THREE.MeshStandardMaterial({ color: 0xf8bf48, roughness: 0.48, metalness: 0.18 }),
       };
 
       // Materials in `mats` are SHARED across many meshes — never dispose them on
@@ -1805,7 +1820,7 @@
         effects: [],
         specials: [], // ELEMENT bank (fire/lightning/water/wind from pickups) — Q + keys 1-4
         selectedSpecial: 0,
-        streakBank: [], // STREAK-MILESTONE bank (checkpoints + birthday) — E + the Streak button
+        streakBank: [], // STREAK-MILESTONE bank — E + the Streak button
         selectedStreak: 0,
         streakScrollTimer: null,
         streakPointer: null,
@@ -1817,10 +1832,6 @@
         waveTotal: 3,
         spawnTimer: 0,
         boss: null,
-        birthdayWave: 3 + Math.floor(Math.random() * 3),
-        birthdayOpened: false,
-        birthdayGroup: null,
-        birthdayPresent: null,
         victoryReached: false,
         victoryGroup: null,
         shakeTimer: 6,
@@ -1853,13 +1864,8 @@
         twinHunt: 0, // Twin Hunt: 2 lead kids supersized, insta-execute, roaming
         carnage: 0, // Carnage: spectral blade-storm aura around the player
         carnageTick: 0,
-        fireworksT: 0, // Fireworks: kid firework barrage timer
-        fireworksGap: 0,
         fistPhase2: 0, // Fist: delay before the linear fist drops on the next batch
         fistDmg: 0,
-        geyser: 0, // Geyser: water-laser-beam timer
-        geyserTick: 0,
-        geyserMesh: null,
         timeScale: 1,
         hitStop: 0,
         slowMo: 0,
@@ -1899,7 +1905,6 @@
         momentum: 0, // kill-flow meter: each kill bumps it, decays in ~2s -> short speed boost.
         activeDashes: 0, // hard cap on simultaneous committed dashes (stalker lunge / brute charge) for fairness.
         flankT: 0, // throttle for recomputing surround-slot bearings.
-        interactMode: "open", // interact button is the birthday "Open" only; throw axe has its own button.
         tremorTaught: false,
         bursarTaught: false,
         lurkerTaught: false,
@@ -2000,33 +2005,6 @@
         { threshold: 850, id: "meteor-chain", label: "Meteor", effect: "meteor", radius: 14, damage: 44 },
         { threshold: 900, id: "climb-frenzy", label: "Frenzy", effect: "frenzy", radius: 0, damage: 0 },
         { threshold: 1000, id: "starfall-nuke", label: "NUKE", effect: "nuke", radius: 24, damage: 999 },
-      ];
-
-      const BIRTHDAY_SPECIALS = [
-        {
-          id: "present-fireworks",
-          label: "Fireworks",
-          effect: "fireworks",
-          radius: 12,
-          damage: 22,
-          birthday: true,
-        },
-        {
-          id: "champagne-geyser",
-          label: "Geyser",
-          effect: "geyser",
-          radius: 10,
-          damage: 18,
-          birthday: true,
-        },
-        {
-          id: "pool-party-doom",
-          label: "Cataclysm",
-          effect: "clear",
-          radius: 24,
-          damage: 120,
-          birthday: true,
-        },
       ];
 
       const WRATH_RANKS = [
@@ -2135,7 +2113,6 @@
       buildTerrain();
       initGLBColossus(); // PROGRESSIVE ENHANCEMENT: async-load colossus.glb + swap it in (procedural until/if it lands)
       initPlayerGLB(); // PROGRESSIVE ENHANCEMENT: async-load santiago.glb as the visible player (procedural until/if it lands)
-      buildBirthdayStage();
       buildVictoryParty();
       updateActorTransforms();
       updateHud();
@@ -2152,7 +2129,7 @@
         resumeAudio();
         const title = overlay.querySelector("h1");
         if (title) title.textContent = "Santiago's Wrath";
-        logEvent("run-start", { birthdayWave: game.birthdayWave });
+        logEvent("run-start", {});
         overlay.classList.add("hidden");
         // FIRST launch: play the skippable colossus intro cinematic, THEN begin the climb.
         // "Climb Again" restarts skip straight to gameplay (intro is once-at-start by default).
@@ -2166,7 +2143,7 @@
 
       attackBtn.addEventListener("pointerdown", (event) => {
         event.preventDefault();
-        if (!game.started || game.state === "dead") return;
+        if (!game.started || game.paused || game.state === "dead") return; // paused: HUD sits under the pointer-events:none overlay and stays tappable
         resumeAudio();
         game.charging = true;
         game.chargeStart = performance.now() / 1000;
@@ -2194,7 +2171,7 @@
 
       attackBtn.addEventListener("click", (event) => {
         event.preventDefault();
-        if (!game.started || game.state === "dead") return;
+        if (!game.started || game.paused || game.state === "dead") return; // this path bypasses releaseAttack, so it needs its own pause gate
         if (performance.now() / 1000 - game.lastAttackRelease > 0.18) {
           performAttack(0);
         }
@@ -2223,6 +2200,10 @@
         game.specialPointer = null;
       });
 
+      specialBar.addEventListener("pointercancel", (event) => {
+        if (event.pointerId === game.specialPointer) game.specialPointer = null; // stale id let an unrelated later pointerup phantom-cast
+      });
+
       // Streak bar: scroll-to-pick + tap-to-cast (mirror of the element bar, for the milestone bank).
       streakBar.addEventListener("scroll", () => {
         if (game.streakScrollTimer) window.clearTimeout(game.streakScrollTimer);
@@ -2243,12 +2224,12 @@
         if (!game.streakPointerMoved) castSelectedStreak();
         game.streakPointer = null;
       });
-
-      interactBtn.addEventListener("click", () => {
-        openBirthdayPresent();
+      streakBar.addEventListener("pointercancel", (event) => {
+        if (event.pointerId === game.streakPointer) game.streakPointer = null; // mirror of the element bar's stale-pointer guard
       });
 
       logBtn.addEventListener("click", () => {
+        if (game.paused) return; // log panel z-index sits UNDER the pause overlay; the pause card has its own Copy/Download log
         openLogPanel();
         logBtn.blur(); // else Space/Enter (charge key) re-clicks the focused button
       });
@@ -2280,6 +2261,59 @@
         window.setTimeout(() => {
           overlayLogBtn.textContent = "Download gameplay log";
         }, 2800);
+      });
+
+      // Pause-screen log export. Works while paused because exportGameplayLog/debug.events are
+      // independent of the frozen sim loop. Feedback via button text, NEVER showToast: toast
+      // expiry runs in the loop, so a toast shown while paused would stick until resume.
+      const pauseCopyLogBtn = document.getElementById("pauseCopyLogBtn");
+      pauseCopyLogBtn?.addEventListener("click", async () => {
+        const json = exportGameplayLog();
+        let copied = false;
+        try {
+          await navigator.clipboard.writeText(json);
+          copied = true;
+        } catch {
+          // file:// or clipboard-permission fallback: select + copy from a temp textarea
+          try {
+            const ta = document.createElement("textarea");
+            ta.value = json;
+            ta.style.position = "fixed";
+            ta.style.opacity = "0";
+            document.body.appendChild(ta);
+            ta.select();
+            copied = document.execCommand("copy");
+            ta.remove();
+          } catch {}
+        }
+        pauseCopyLogBtn.textContent = copied ? "Copied ✓" : "Copy blocked — log in console";
+        window.setTimeout(() => {
+          pauseCopyLogBtn.textContent = "Copy log";
+        }, 2400);
+        pauseCopyLogBtn.blur(); // else Space (charge key) re-clicks the focused button on resume
+      });
+
+      const pauseDownloadLogBtn = document.getElementById("pauseDownloadLogBtn");
+      pauseDownloadLogBtn?.addEventListener("click", () => {
+        const json = exportGameplayLog();
+        try {
+          const blob = new Blob([json], { type: "application/json" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = `santiago-wrath-log-${Date.now()}.json`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+          pauseDownloadLogBtn.textContent = "Downloaded ✓";
+        } catch {
+          pauseDownloadLogBtn.textContent = "Log printed to console";
+        }
+        window.setTimeout(() => {
+          pauseDownloadLogBtn.textContent = "Download log";
+        }, 2400);
+        pauseDownloadLogBtn.blur();
       });
 
       closeLogBtn.addEventListener("click", () => {
@@ -2322,7 +2356,8 @@
       window.addEventListener("keydown", (event) => {
         input.keys.add(event.key.toLowerCase());
         if (event.code === "Space") event.preventDefault(); // never let Space scroll or click a focused button
-        if (event.code === "Space" && !game.charging) {
+        if (event.repeat) return; // OS key-repeat must not machine-gun casts (Q/E/1-4 drain banks) or strobe P/Escape
+        if (event.code === "Space" && !game.charging && !game.paused && game.started) {
           game.charging = true;
           game.chargeStart = performance.now() / 1000;
           game.chargeReadyPinged = false;
@@ -2335,7 +2370,7 @@
         if (event.key === "2") castElement("lightning");
         if (event.key === "3") castElement("water");
         if (event.key === "4") castElement("wind");
-        if (event.key.toLowerCase() === "e") castSelectedStreak(); // E casts the selected milestone (present uses the Open button)
+        if (event.key.toLowerCase() === "e") castSelectedStreak(); // E casts the selected milestone
         if (event.key.toLowerCase() === "p") setRetro(!retro.enabled);
         if (event.key === "Escape") togglePause();
       });
@@ -2346,6 +2381,28 @@
           releaseAttack();
           attackBtn.classList.remove("charging");
         }
+      });
+
+      // Focus-loss recovery: keys held across Cmd-Tab / OS dialogs never get their keyup, which
+      // latched auto-run forever and left game.charging stuck with the charge tone droning (the
+      // touch channel has pointercancel for this; the keyboard channel had nothing). Deliberately
+      // does NOT swing — no surprise full-charge attack on returning to the tab.
+      function resetTransientInput() {
+        input.keys.clear();
+        input.stickPointer = null;
+        input.stick.set(0, 0);
+        input.move.set(0, 0);
+        stickKnob.style.transform = "translate(-50%, -50%)";
+        if (game.charging) {
+          game.charging = false;
+          game.chargeReadyPinged = false;
+          stopChargeTone();
+          attackBtn.classList.remove("charging");
+        }
+      }
+      window.addEventListener("blur", resetTransientInput);
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "hidden") resetTransientInput();
       });
 
       window.addEventListener("resize", () => {
@@ -2442,7 +2499,6 @@
           updatePickups(dt);
           updateEffects(dt);
           updateZones(wDt);
-          updateBirthdayInteract();
           updateHud();
         } else {
           animateIdle(realDt);
@@ -2659,6 +2715,7 @@
           kidHunt: round(game.kidHunt, 3),
           specials: game.specials.map((special) => special.label),
           streakBank: game.streakBank.map((special) => special.label),
+          unlocks: game.unlocks ? { ...game.unlocks } : null, // boss-gated kit state — without this, logs can't verify progression
           player: player
             ? {
                 x: round(player.pos.x, 3),
@@ -2688,7 +2745,7 @@
 
       function exportGameplayLogObject() {
         return {
-          version: "2026-06-08n-v5.8-warden-fix",
+          version: "2026-06-09-v6.1-no-birthday", // NOTE (per COORDINATION.md): bump this with every shipped build
           exportedAt: new Date().toISOString(),
           userAgent: navigator.userAgent,
           viewport: { width: window.innerWidth, height: window.innerHeight, dpr: window.devicePixelRatio },
@@ -2844,14 +2901,14 @@
         };
         SB.reset = function () { SB.respawnDummies(); SB.clearLog(); };
         SB.clearLog = function () { if (W.debug && W.debug.events) W.debug.events.length = 0; };
-        SB.element = function (id) { const e = ELEMENTS.find((x) => x.id === id); if (!e) return; game.unlocks = { spells: true, streaks: true, mix2: true, mix3: true }; SB._last = e.label; game.comboEls = {}; logCast("element", e.label, player.pos.clone(), e.radius); executeSpecial(Object.assign({}, e)); };
-        SB.streak = function (id) { const s = STREAK_SPECIALS.concat(BIRTHDAY_SPECIALS).find((x) => x.id === id); if (!s) return; SB._last = s.label; logCast("streak", s.label, player.pos.clone(), s.radius); executeSpecial(Object.assign({}, s)); };
+        SB.element = function (id) { const e = ELEMENTS.find((x) => x.id === id); if (!e) return; game.unlocks = { spells: true, streaks: true, mix2: true, mix3: true }; renderSpecialBar({ instant: true }); SB._last = e.label; game.comboEls = {}; logCast("element", e.label, player.pos.clone(), e.radius); executeSpecial(Object.assign({}, e)); };
+        SB.streak = function (id) { const s = STREAK_SPECIALS.find((x) => x.id === id); if (!s) return; SB._last = s.label; logCast("streak", s.label, player.pos.clone(), s.radius); executeSpecial(Object.assign({}, s)); };
         SB.combo = function (key) { const c = COMBO_TABLE[key]; if (!c) return; SB._last = c.name; logCast("combo", c.name, player.pos.clone(), 6); c.run(player.pos.clone()); };
         SB.lists = function () {
           return {
             elements: ELEMENTS.map((e) => ({ id: e.id, label: e.label, color: e.color })),
             combos: Object.keys(COMBO_TABLE).map((k) => ({ key: k, name: COMBO_TABLE[k].name, color: COMBO_TABLE[k].color })),
-            streaks: STREAK_SPECIALS.concat(BIRTHDAY_SPECIALS).map((s) => ({ id: s.id, label: s.label, threshold: s.threshold || 0 })),
+            streaks: STREAK_SPECIALS.map((s) => ({ id: s.id, label: s.label, threshold: s.threshold || 0 })),
             enemyTypes: REG_KINDS.map((id) => ({ id: id, label: KIND_LABEL[id] || id })).concat(BOSS_KINDS.map((k) => ({ id: "boss:" + k, label: KIND_LABEL[k] || k }))),
           };
         };
@@ -2938,69 +2995,6 @@
         }
         // TWIN HUNT: 2 supersized lead kids insta-execute (movement/kills in updateKids); expire here.
         if (game.twinHunt > 0 && game.state === "wave") game.twinHunt = Math.max(0, game.twinHunt - dt);
-        // GEYSER: a water laser that follows your aim for 6s, shoving + drowning mobs (off-map = bonus kill).
-        if (game.geyser > 0) {
-          game.geyser = Math.max(0, game.geyser - dt);
-          game.geyserTick -= dt;
-          const gHit = game.geyserTick <= 0;
-          if (gHit) game.geyserTick = 0.12;
-          const f = player.facing.clone();
-          if (f.lengthSq() < 0.001) f.set(0, 1);
-          f.normalize();
-          const len = 16;
-          const halfW = 1.5;
-          const side = new THREE.Vector2(-f.y, f.x);
-          for (const e of [...game.enemies]) {
-            if (e.dead || e.intangible > 0) continue;
-            const rel = e.pos.clone().sub(player.pos);
-            const along = rel.dot(f);
-            if (along < 0 || along > len || Math.abs(rel.dot(side)) > halfW + e.radius) continue;
-            if (e.knockVel) e.knockVel.addScaledVector(f, 60 * dt);
-            e.pos.addScaledVector(f, 6 * dt);
-            // direct lethal damage (the arena re-clamps mobs in-bounds, so the off-map check alone never kills)
-            if (gHit) elementHit(e, e.type === "boss" ? 5 : 4, "water", f);
-            const off =
-              e.pos.x < -HALF_W - 0.5 ||
-              e.pos.x > HALF_W + 0.5 ||
-              e.pos.y > game.stageCenter + HALF_H + 0.5 ||
-              e.pos.y < game.stageCenter - HALF_H - 0.5;
-            if (off && e.type !== "boss") {
-              createGore(e.pos, f, 8);
-              killEnemy(e, f);
-            }
-          }
-          if (!game.geyserMesh) {
-            const m = new THREE.Mesh(
-              new THREE.PlaneGeometry(halfW * 2, len),
-              new THREE.MeshBasicMaterial({ color: 0x3aa6ff, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
-            );
-            groups.effects.add(m);
-            game.geyserMesh = m;
-          }
-          game.geyserMesh.position.set(player.pos.x + f.x * len * 0.5, player.pos.y + f.y * len * 0.5, 0.5);
-          game.geyserMesh.rotation.z = Math.atan2(f.y, f.x) - Math.PI / 2;
-          game.geyserMesh.material.opacity = 0.4 + 0.15 * Math.abs(Math.sin(performance.now() * 0.03));
-          if (game.geyser === 0 && game.geyserMesh) {
-            groups.effects.remove(game.geyserMesh);
-            disposeObject(game.geyserMesh);
-            game.geyserMesh = null;
-          }
-        }
-        // FIREWORKS: the kids (at the bottom of the map, see updateKids) launch a multicolor barrage.
-        if (game.fireworksT > 0) {
-          game.fireworksT = Math.max(0, game.fireworksT - dt);
-          game.fireworksGap -= dt;
-          if (game.fireworksGap <= 0) {
-            game.fireworksGap = 0.18 + Math.random() * 0.12;
-            const live = game.enemies.filter((e) => !e.dead);
-            const target = live.length
-              ? live[Math.floor(Math.random() * live.length)].pos.clone()
-              : new THREE.Vector2(rand(-HALF_W, HALF_W), game.stageCenter + rand(-HALF_H, HALF_H));
-            const colors = [0xff5a5a, 0x65d5ff, 0xffd24c, 0x9b7bff, 0x6fef8a];
-            createFireworks(target, 26, colors[Math.floor(Math.random() * colors.length)]);
-            radialDamage(target, 3.2, 16);
-          }
-        }
         // FIST phase 2: after the next batch has spawned, drop the giant linear fist on them.
         if (game.fistPhase2 > 0) {
           game.fistPhase2 = Math.max(0, game.fistPhase2 - dt);
@@ -3256,15 +3250,6 @@
             }
             continue;
           }
-          // FIREWORKS: the kids run to the bottom of the map to launch the barrage (bursts in updateTimers).
-          if (game.fireworksT > 0 && game.state === "wave") {
-            const bx = THREE.MathUtils.clamp(player.pos.x + (index === 0 ? -1.6 : 1.6), -HALF_W + 0.5, HALF_W - 0.5);
-            const by = game.stageCenter - HALF_H + 0.8;
-            kid.pos.lerp(new THREE.Vector2(bx, by), Math.min(1, dt * 5));
-            kid.group.position.set(kid.pos.x, kid.pos.y, surfaceZ(kid.pos.x, kid.pos.y) + 0.32);
-            kid.group.rotation.z = facingToRotation(new THREE.Vector2(0, 1));
-            continue;
-          }
           const target = samplePath(kid.delay);
           const hunting = game.kidHunt > 0 && game.state === "wave";
           // KID RAID: seek the nearest mob ANYWHERE on the field (roam freely; don't tether back to Santiago).
@@ -3434,6 +3419,7 @@
         enemy.lungeTel = 0;
         enemy.charge = 0;
         enemy.chargeTel = 0;
+        if (enemy.lungeLane) enemy.lungeLane.visible = false; // hide the lunge-direction telegraph
       }
 
       // --- Boss attack helpers (telegraphed, dodgeable; all discs tagged ownerId so they die with the boss) ---
@@ -3505,8 +3491,8 @@
           if (enemy.stunned > 0) {
             clearDash(enemy); // a stun interrupts any committed dash (releases the fairness-cap slot)
             enemy.stunned -= dt;
-            enemy.group.rotation.z += dt * 2;
-            // keep the mesh on the hitbox even while AI is frozen (Geyser/Wind can shove a stunned mob)
+            if (enemy.type !== "boss") enemy.group.rotation.z += dt * 2; // dizzy spin reads fine on small mobs; on a boss post-lunge it read as a weird 360 launch
+            // keep the mesh on the hitbox even while AI is frozen (Wind can shove a stunned mob)
             enemy.group.position.set(enemy.pos.x, enemy.pos.y, surfaceZ(enemy.pos.x, enemy.pos.y) + 0.03 + (enemy.intangible > 0 ? -0.9 : 0));
             continue;
           }
@@ -3822,9 +3808,11 @@
               } else if (enemy.chargeTel > 0) {
                 enemy.chargeTel -= dt;
                 enemy.flash = 1;
+                if (enemy.lungeLane) enemy.lungeLane.material.opacity = 0.16 + 0.14 * Math.abs(Math.sin(performance.now() * 0.012)); // pulse the lane
                 if (enemy.chargeTel <= 0) {
                   enemy.charge = dur;
                   enemy.bounces = 0;
+                  if (enemy.lungeLane) enemy.lungeLane.visible = false; // direction is committed — lane read is done
                 }
               } else {
                 enemy.chargeCd = (enemy.chargeCd ?? cd) - dt;
@@ -3833,6 +3821,21 @@
                   enemy.chargeDir.copy(dir);
                   enemy.chargeTel = tel;
                   createRing(enemy.pos, 0xff4a3a, enemy.radius * 1.6);
+                  // LUNGE LANE telegraph: a ground strip along the LOCKED direction so the player can read
+                  // exactly where the lunge goes. Child of the group (group-local +Y = facing, which the
+                  // facing lock pins to chargeDir during the telegraph) -> it aims itself and dies with the boss.
+                  if (!enemy.lungeLane && typeof THREE.PlaneGeometry === "function") {
+                    try {
+                      const lg = new THREE.PlaneGeometry(1, 1); lg.translate(0, 0.5, 0); // origin at the near end, extends +Y
+                      enemy.lungeLane = new THREE.Mesh(lg, new THREE.MeshBasicMaterial({ color: 0xff4a3a, transparent: true, opacity: 0.22, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
+                      enemy.lungeLane.position.z = 0.06; // just off the ground plane (group-local)
+                      enemy.group.add(enemy.lungeLane);
+                    } catch (err) { enemy.lungeLane = null; }
+                  }
+                  if (enemy.lungeLane) {
+                    enemy.lungeLane.scale.set(enemy.radius * 1.5, 13 * dur + enemy.radius, 1); // width x lunge distance
+                    enemy.lungeLane.visible = true;
+                  }
                 }
               }
             };
@@ -3912,7 +3915,7 @@
                 approach(0.55);
                 summon("crawler", "hugger", 6);
                 slams(ph >= 3 ? 3 : 2, 2.0, ph >= 3 ? 3.6 : 5);
-                if (ph >= 3) dash(4, 0.55, 0.5, false); // a crawler-style zig-zag rush
+                if (ph >= 3) dash(4, 0.8, 0.5, false); // P3: fat-king FORWARD LUNGE — longer telegraph + lunge-lane strip so the direction is readable (was a spin-y "zig-zag rush")
                 break;
               }
               case "warden": {
@@ -4051,7 +4054,7 @@
             }
           }
 
-          if (enemy.type === "hugger" && distance < 0.95 && !enemy.clinging) {
+          if (enemy.type === "hugger" && distance < 1.2 && !enemy.clinging) { // latch scaled with the +50% body (was 0.95): same slight-overlap feel vs the new 1.36 contact distance
             enemy.clinging = true;
             enemy.stunned = 0.08;
           }
@@ -4075,7 +4078,7 @@
             // swarm never threatened). Each enemy lands a real chunk at most every 0.6s.
             if (enemy.touchCd <= 0 && game.invincible <= 0 && game.godMode <= 0) {
               enemy.touchCd = enemy.type === "boss" ? 1.1 : 0.6; // a clinging melee boss can't chain-bite you to death (log v5.5: Pack Alpha)
-              const damage = enemy.contactDamage * 0.55 * (enemy.type === "hugger" ? 0.2 : 1);
+              const damage = enemy.contactDamage * 0.55; // hugger contactDamage is 0 -> the damage>0 guard below skips damagePlayer AND damageStreak (slow-only, streak-safe)
               if (damage > 0) {
                 damagePlayer(damage, { source: "contact", enemyId: enemy.id, type: enemy.type });
                 damageStreak({ source: "contact", type: enemy.type });
@@ -4091,7 +4094,23 @@
           // Submerged Serpent sinks below the surface (reads as "can't be hit") and the actor follows.
           const sink = enemy.intangible > 0 ? -0.9 : 0;
           enemy.group.position.set(enemy.pos.x, enemy.pos.y, surfaceZ(enemy.pos.x, enemy.pos.y) + 0.03 + sink);
-          enemy.group.rotation.z = facingToRotation(dir);
+          // During a boss lunge (telegraph + committed charge), face the LOCKED direction: facing live-dir
+          // used to flip 180 as the boss passed the player (half of the old "360 launch" read).
+          const lockLunge = enemy.type === "boss" && (enemy.charge > 0 || enemy.chargeTel > 0) && enemy.chargeDir && enemy.chargeDir.lengthSq() > 0.001;
+          const swayCfg = MOB_SWAY[enemy.type];
+          if (!lockLunge && swayCfg && swayCfg.gallop && move.lengthSq() > 0.04) {
+            // gallop types (stalker) RUN the way they MOVE — flank-strafing used to slide the body sideways
+            // while the gallop clawed forward. Smoothed so the weave doesn't snap the body around; while
+            // pouncing/idle (move ~0) it falls through to facing the player. Head-tracking is the visual layer's.
+            if (!enemy.headingV) enemy.headingV = new THREE.Vector2(dir.x, dir.y);
+            enemy.headingV.lerp(move, Math.min(1, dt * 7));
+            if (enemy.headingV.lengthSq() > 0.001) {
+              enemy.headingV.normalize();
+              enemy.group.rotation.z = facingToRotation(enemy.headingV);
+            } else enemy.group.rotation.z = facingToRotation(dir);
+          } else {
+            enemy.group.rotation.z = facingToRotation(lockLunge ? enemy.chargeDir : dir);
+          }
           if (enemy.spawnT != null && enemy.spawnT < 1) enemy.spawnT = Math.min(1, enemy.spawnT + dt / 0.25); // advance the visual spawn-in
           const spawnPop = enemy.spawnT != null ? easeOutBack(enemy.spawnT) : 1; // back-ease pop on materialize (cosmetic)
           enemy.group.scale.setScalar(
@@ -4285,15 +4304,6 @@
         }
       }
 
-      function updateBirthdayInteract() {
-        const nearPresent =
-          game.wave === game.birthdayWave &&
-          !game.birthdayOpened &&
-          game.birthdayPresent &&
-          player.pos.distanceTo(game.birthdayPresent.pos) < 1.75;
-        interactBtn.classList.toggle("visible", !!nearPresent);
-      }
-
       // Throw axe: one retrievable axe. Throw it -> it pierces EVERYTHING in its path, then lands on
       // the ground. You must walk over it to pick it up before you can throw again (no cooldown).
       function throwAxe() {
@@ -4362,6 +4372,9 @@
         game.lastAttackRelease = performance.now() / 1000;
         attackBtn.classList.remove("charging");
         stopChargeTone();
+        // Chokepoint pause/over gate (covers Space keyup, attackBtn pointerup AND pointercancel):
+        // attacks used to resolve into the FROZEN sim — kills/streak/loot/lunge while paused.
+        if (game.paused || !game.started || game.state === "dead" || game.state === "victory") return;
         performAttack(charge);
       }
 
@@ -4577,6 +4590,7 @@
           // Pure-duel: the boss's summoned mobs die with their master so the section ends cleanly.
           for (const e of [...game.enemies]) {
             if (e !== enemy && !e.dead) {
+              clearDash(e); // a summon swept mid-lunge/charge must release its activeDashes slot — leaks here permanently capped dash pressure (cap is 2) for the rest of the run
               createGore(e.pos, new THREE.Vector2(0, 1), 6);
               e.dead = true;
               groups.actors.remove(e.group);
@@ -4630,10 +4644,13 @@
       function grantBossUnlock(kind) {
         const u = game.unlocks; if (!u) return;
         const announce = (msg, color) => {
-          showToast(msg, 3.6);
+          logEvent("boss-unlock", { kind, unlocks: { ...u } }); // make unlock timing visible in playtest logs (was untraceable in log-14)
+          showToast(msg, 3.6, true); // priority: must not be clobbered by the same-frame "Wave clear" toast
           spawnFloater(player.pos, "UNLOCKED", { color: color || 0xfff0a8, size: 30, life: 1.5, rise: 42 });
           screenPulse(0.26, color || 0xfff0a8);
           if (typeof playFanfare === "function") playFanfare();
+          renderSpecialBar({ instant: true }); // lift the bar's sealed styling the moment the seal breaks
+          game.comboEls = {}; // sealed-era chain residue must not fuse into a combo right after a mix unlock
         };
         if (kind === "tyrant" && !u.spells) { u.spells = true; announce("The elements awaken — cast Fire / Water / Wind / Lightning (Q).", 0xff6a1a); }
         else if (kind === "warden" && !u.streaks) { u.streaks = true; announce("Streak powers unsealed — your milestone bank can now be cast (E).", 0x9be7ff); }
@@ -4692,7 +4709,8 @@
           });
         }
         damageFlash.classList.add("hot");
-        window.setTimeout(() => damageFlash.classList.remove("hot"), 80);
+        if (game.dmgFlashTimer) window.clearTimeout(game.dmgFlashTimer); // same overlap fix as screenPulse — rapid hits kept clipping the flash
+        game.dmgFlashTimer = window.setTimeout(() => damageFlash.classList.remove("hot"), 80);
         buzz(15);
         if (game.health <= 0) die();
       }
@@ -4742,12 +4760,9 @@
           wave,
           waveTotal: game.waveTotal,
           activeCap: activeCapFor(game.wave),
-          birthdayWave: game.birthdayWave,
         });
 
-        if (wave === game.birthdayWave && !game.birthdayOpened) {
-          showToast("A birthday arena tears out of the colossus.");
-        } else if (wave === 100 && !game.stage100Seen) {
+        if (wave === 100 && !game.stage100Seen) {
           game.stage100Seen = true;
           activateNightTheme();
         } else {
@@ -4778,15 +4793,8 @@
         game.zones = game.zones.filter((z) => !HAZARD(z.kind));
         // a wave ending mid-cast shouldn't leave timed specials telegraphing/animating into the breather
         game.fistPhase2 = 0;
-        game.fireworksT = 0;
-        game.geyser = 0;
         game.carnage = 0;
         game.phaseDash = 0;
-        if (game.geyserMesh) {
-          groups.effects.remove(game.geyserMesh);
-          disposeObject(game.geyserMesh);
-          game.geyserMesh = null;
-        }
         if (game.phaseShell) {
           player.group.remove(game.phaseShell);
           disposeObject(game.phaseShell);
@@ -4808,10 +4816,10 @@
       function clearWave() {
         game.state = "clear";
         game.stagger = 0; // free movement immediately for the climb breather
+        if (game.shake > 0 || game.shakeWarning > 0) endShake("wave-clear"); // BEFORE zeroing shakeWarning — the old order made this unreachable, leaving the amber 'hot' warning vignette stuck for the rest of the run
         game.shakeWarning = 0;
         clearWaveHazards();
         game.health = Math.min(MAX_HEALTH, game.health + 38);
-        if (game.shake > 0 || game.shakeWarning > 0) endShake("wave-clear");
         game.bestWave = Math.max(game.bestWave, game.wave);
         updateBestStorage();
         logEvent("wave-clear", { wave: game.wave, waveKills: game.waveKills });
@@ -4828,13 +4836,13 @@
         game.victoryReached = true;
         game.state = "victory";
         game.stagger = 0;
+        if (game.shake > 0 || game.shakeWarning > 0) endShake("victory"); // before zeroing shakeWarning (same stuck-vignette inversion as clearWave)
         game.shakeWarning = 0;
         game.wave = WIN_WAVE;
         game.stageCenter = VICTORY_HEAD_Y;
         game.cameraTargetY = VICTORY_HEAD_Y;
         game.health = MAX_HEALTH;
         game.boss = null;
-        if (game.shake > 0 || game.shakeWarning > 0) endShake("victory");
         clearWaveHazards();
         for (const enemy of game.enemies) {
           groups.actors.remove(enemy.group);
@@ -4859,9 +4867,9 @@
         createFireworks(new THREE.Vector2(0, VICTORY_HEAD_Y + 2.4), 120);
         createChampagne(new THREE.Vector2(0, VICTORY_HEAD_Y + 0.8), 80);
         createRing(new THREE.Vector2(0, VICTORY_HEAD_Y), 0xff4fd8, 12);
-        spawnFloater(new THREE.Vector2(0, VICTORY_HEAD_Y + 4), "HAPPY BIRTHDAY!", { color: 0xfff0a8, size: 40, life: 2.4, rise: 18 });
+        spawnFloater(new THREE.Vector2(0, VICTORY_HEAD_Y + 4), "VICTORY!", { color: 0xfff0a8, size: 40, life: 2.4, rise: 18 });
         logEvent("victory", { wave: WIN_WAVE, kills: game.kills, bestStreak: game.bestStreak });
-        showToast("NIGHT MODE — Santiago's birthday rave at the colossus head!", 5.2);
+        showToast("NIGHT MODE — the colossus head is yours. Wrath triumphant!", 5.2);
         window.setTimeout(showVictoryOverlay, 5200);
       }
 
@@ -4871,9 +4879,9 @@
         ui.overlayBestStreak.textContent = `Best streak ${game.bestStreak}`;
         startBtn.textContent = "Climb Again";
         const title = overlay.querySelector("h1");
-        if (title) title.textContent = "Happy Birthday!";
+        if (title) title.textContent = "Victory!";
         overlay.querySelector("p").textContent =
-          `Santiago conquered all 15 waves with ${game.kills} kills and a best streak of ${game.bestStreak}. The colossus head is now his birthday rave. Climb again to beat your score.`;
+          `Santiago conquered all 15 waves with ${game.kills} kills and a best streak of ${game.bestStreak}. The colossus head is his. Climb again to beat your score.`;
         overlay.classList.remove("hidden");
       }
 
@@ -4884,22 +4892,19 @@
         game.worldSlow = 0; // else the bullet-time veil/state freezes on the death screen (updateHud stops running)
         game.windFrenzy = 0;
         if (timeVeil) timeVeil.classList.remove("active");
+        if (game.shake > 0 || game.shakeWarning > 0) endShake("death"); // die mid-heave-warning used to leave the amber vignette lit through the death screen AND the next run
+        ui.toast.classList.remove("visible"); // toast expiry runs in the loop, which stops on death
+        for (const f of floaters) { f.el.style.opacity = "0"; floaterPool.push(f); } // floaters froze mid-air and stayed faintly visible through the death overlay
+        floaters.length = 0;
         // tear down the mega-suite timed specials so nothing freezes on the death overlay
         game.phaseDash = 0;
         game.twinHunt = 0;
         game.carnage = 0;
-        game.fireworksT = 0;
         game.fistPhase2 = 0;
-        game.geyser = 0;
         if (game.phaseShell) {
           player.group.remove(game.phaseShell);
           disposeObject(game.phaseShell);
           game.phaseShell = null;
-        }
-        if (game.geyserMesh) {
-          groups.effects.remove(game.geyserMesh);
-          disposeObject(game.geyserMesh);
-          game.geyserMesh = null;
         }
         for (const kid of kids) kid.group.scale.setScalar(kid.baseScale);
         game.health = 0;
@@ -4914,7 +4919,6 @@
         overlay.querySelector("p").textContent =
           `Santiago reached Wave ${game.wave} with ${game.kills} kills. The gods demand another run.`;
         overlay.classList.remove("hidden");
-        interactBtn.classList.remove("visible");
       }
 
       function resetRun() {
@@ -4948,8 +4952,6 @@
         game.selectedSpecial = 0;
         game.streakBank = [];
         game.selectedStreak = 0;
-        game.birthdayWave = 3 + Math.floor(Math.random() * 3);
-        game.birthdayOpened = false;
         game.victoryReached = false;
         game.stage100Seen = false;
         game.maxChargeBuff = false;
@@ -4963,18 +4965,11 @@
         game.phaseDash = 0;
         game.twinHunt = 0;
         game.carnage = 0;
-        game.fireworksT = 0;
         game.fistPhase2 = 0;
-        game.geyser = 0;
         if (game.phaseShell) {
           player.group.remove(game.phaseShell);
           disposeObject(game.phaseShell);
           game.phaseShell = null;
-        }
-        if (game.geyserMesh) {
-          groups.effects.remove(game.geyserMesh);
-          disposeObject(game.geyserMesh);
-          game.geyserMesh = null;
         }
         for (const kid of kids) kid.group.scale.setScalar(kid.baseScale);
         game.autoDeflect = 0;
@@ -5070,8 +5065,11 @@
         game.weaknessTaught = false;
         game.shakeTaught = false;
         game.axeTaught = false;
+        game.hexTaught = false; // was missing -> the Hex Conduit beam tutorial showed only once per page load
+        game.toastQueued = null; // a toast deferred behind a priority window in the DEAD run must not pop into the new one
+        game.toastPriorityUntil = 0; // and a still-open window must not scramble the Wave-1 banner
+        if (game.shake > 0 || game.shakeWarning > 0) endShake("reset"); // clear a stuck heave-warning vignette from the dead run
         resetWorldTheme();
-        rebuildBirthdayStage();
         updateHud();
         renderSpecialBar();
       }
@@ -5409,9 +5407,6 @@
         if (game.wave % 5 === 0) {
           spawnPickup(new THREE.Vector2(rand(-4.8, 4.8), game.stageCenter + 1.4), "rune");
         }
-        if (game.wave === game.birthdayWave) {
-          spawnPickup(new THREE.Vector2(-4.5, game.stageCenter - 2.3), "cup");
-        }
       }
 
       function applyPickup(pickup) {
@@ -5461,42 +5456,11 @@
         } else if (pickup.type === "lightning") {
           game.autoDeflect = 8;
           showToast("Lightning bottle: projectiles turn back.");
-        } else if (pickup.type === "cup") {
-          addSpecial({
-            id: `birthday-cup-${Date.now()}`,
-            label: "Confetti",
-            effect: "champagne",
-            radius: 6.2,
-            damage: 5,
-            birthday: true,
-          });
-          showToast("Birthday cup: confetti carnage banked.");
         }
         logEvent("pickup-collect", { type: pickup.type });
         createRing(pickup.pos, 0x65d5ff, 2.5);
       }
 
-      function openBirthdayPresent() {
-        if (
-          game.wave !== game.birthdayWave ||
-          game.birthdayOpened ||
-          !game.birthdayPresent ||
-          player.pos.distanceTo(game.birthdayPresent.pos) >= 1.75
-        ) {
-          return;
-        }
-        game.birthdayOpened = true;
-        interactBtn.classList.remove("visible");
-        BIRTHDAY_SPECIALS.forEach((special) => addSpecial({ ...special, id: `${special.id}-${Date.now()}` }));
-        createFireworks(game.birthdayPresent.pos, 54);
-        createRing(game.birthdayPresent.pos, 0xf8bf48, 10);
-        showToast("Happy Birthday Santiago! Three max-tier specials banked.");
-        if (game.birthdayPresent.group) {
-          game.birthdayPresent.group.rotation.z = 0.7;
-          game.birthdayPresent.group.scale.set(1.28, 0.5, 1.28);
-        }
-        logEvent("birthday-present-open", { specialsAdded: BIRTHDAY_SPECIALS.map((special) => special.label) });
-      }
 
       function checkStreakSpecials() {
         for (const spec of STREAK_SPECIALS) {
@@ -5517,7 +5481,7 @@
       }
 
       // Element specials (from pickups) go to the ELEMENT bank (Q / 1-4); everything else (streak
-      // checkpoints + birthday present) goes to the STREAK bank (E / Streak button).
+      // checkpoints) goes to the STREAK bank (E / Streak button).
       function addSpecial(special) {
         if (isElementEffect(special.effect)) {
           game.specials.push(special);
@@ -5531,16 +5495,19 @@
       }
 
       function renderSpecialBar({ instant = false } = {}) {
-        renderBar(specialBar, game.specials, game.selectedSpecial, instant);
-        renderBar(streakBar, game.streakBank, game.selectedStreak, instant);
+        renderBar(specialBar, game.specials, game.selectedSpecial, instant, !game.unlocks.spells);
+        renderBar(streakBar, game.streakBank, game.selectedStreak, instant, !game.unlocks.streaks);
         if (elemCount) elemCount.textContent = game.specials.length ? `×${game.specials.length}` : "";
         if (streakCount) streakCount.textContent = game.streakBank.length ? `×${game.streakBank.length}` : "";
       }
 
-      function renderBar(bar, list, selectedIndex, instant) {
+      function renderBar(bar, list, selectedIndex, instant, sealed = false) {
         bar.innerHTML = "";
         bar.classList.toggle("visible", list.length > 0);
-        bar.classList.toggle("cast-ready", list.length > 0);
+        // Sealed banks used to render the same glowing "cast-ready" chips as unlocked ones, so the
+        // player couldn't tell a boss unlock had (or hadn't) happened (log-14: 0 casts waves 4-5).
+        bar.classList.toggle("cast-ready", list.length > 0 && !sealed);
+        bar.classList.toggle("sealed", list.length > 0 && sealed);
         bar.classList.remove("empty");
         if (!list.length) {
           bar.scrollTop = 0;
@@ -5600,10 +5567,22 @@
         }
       }
 
+      // A cast attempt outside a wave used to bare-return with ZERO feedback — pressing Q/E during the
+      // climb breather (74% of waves 4-5 wall-clock in log-14) was total silence, which trained the
+      // player that the keys do nothing. Explain instead (debounced so taps can't spam the toast).
+      function toastCastBreather() {
+        const now = performance.now() / 1000;
+        if (now - (game.breatherToastAt || 0) < 3) return;
+        game.breatherToastAt = now;
+        showToast("Powers channel only mid-wave — climb on.", 1.8);
+      }
+
       function castSelectedSpecial() {
         // Element bank (Q / element-bar tap). Only castable mid-wave.
-        if (!game.specials.length || game.state !== "wave") return;
+        if (!game.started || game.paused || !game.specials.length) return; // paused: keydown isn't gated, so don't cast into a frozen sim
         if (!game.unlocks.spells) { showToast("The elements are sealed — defeat the Grave Tyrant to channel them.", 2.6); return; }
+        if (game.state !== "wave") { if (game.state === "clear") toastCastBreather(); return; } // explain only during the climb breather; silent on death/victory
+        if (game.specialScrollTimer) { window.clearTimeout(game.specialScrollTimer); game.specialScrollTimer = null; selectNearestSpecialFromScroll(); } // flush a pending scroll-snap so the cast matches the chip in the loaded slot (90ms debounce let a stale chip fire)
         const special = game.specials.splice(game.selectedSpecial, 1)[0];
         game.selectedSpecial = Math.max(0, Math.min(game.selectedSpecial, game.specials.length - 1));
         logEvent("special-cast", { label: special.label, effect: special.effect });
@@ -5613,8 +5592,10 @@
 
       function castSelectedStreak() {
         // Streak-milestone bank (E / Streak button / streak-bar tap). Never fires from Q.
-        if (!game.streakBank.length || game.state !== "wave") return;
+        if (!game.started || game.paused || !game.streakBank.length) return;
         if (!game.unlocks.streaks) { showToast("Streak powers are sealed — defeat the Rune Warden to wield them.", 2.6); return; }
+        if (game.state !== "wave") { if (game.state === "clear") toastCastBreather(); return; } // explain only during the climb breather; silent on death/victory
+        if (game.streakScrollTimer) { window.clearTimeout(game.streakScrollTimer); game.streakScrollTimer = null; selectNearestStreakFromScroll(); } // flush pending scroll-snap (same stale-chip fix as the element bar)
         const special = game.streakBank.splice(game.selectedStreak, 1)[0];
         game.selectedStreak = Math.max(0, Math.min(game.selectedStreak, game.streakBank.length - 1));
         logEvent("special-cast", { label: special.label, effect: special.effect, bank: "streak" });
@@ -5624,8 +5605,9 @@
 
       // Cast the first banked special matching an element effect (number-key 1-4 direct-cast).
       function castElement(effect) {
-        if (game.state !== "wave") return;
+        if (!game.started || game.paused) return;
         if (!game.unlocks.spells) { showToast("The elements are sealed — defeat the Grave Tyrant to channel them.", 2.6); return; }
+        if (game.state !== "wave") { if (game.state === "clear") toastCastBreather(); return; } // explain only during the climb breather; silent on death/victory
         const idx = game.specials.findIndex((s) => s.effect === effect);
         if (idx < 0) {
           blip({ type: "square", freq: 140, dur: 0.05, gain: 0.05 }); // "none banked" tick
@@ -5640,8 +5622,8 @@
       }
 
       function triggerCastJuice(special) {
-        const color = special.element ?? (special.birthday ? 0xf8bf48 : 0xff7138);
-        const big = special.damage >= 99 || special.birthday;
+        const color = special.element ?? 0xff7138;
+        const big = special.damage >= 99;
         if (special.effect === "slow") {
           // SLOW's identity is serenity / time-dilation — a calm bloom, never a slam.
           game.slowMo = Math.max(game.slowMo, 0.22);
@@ -5818,13 +5800,32 @@
         }
         // Mixing is boss-gated: Pack Alpha unlocks 2-element fusion, Hex Conduit unlocks 3-element.
         const maxTier = game.unlocks.mix3 ? 3 : game.unlocks.mix2 ? 2 : 1;
-        if (maxTier === 1) { game.comboEls = {}; return false; } // mixing still locked -> always cast solo
+        if (maxTier === 1) {
+          // Mixing still locked -> always cast solo. But a different element within the beat window is
+          // a clear MIX ATTEMPT — say why nothing fused, or correct gating reads as broken (log-14:
+          // three Lightning+Fire chains at wave 7 fell back to solo with zero feedback).
+          const tried = Object.keys(game.comboEls).some((k) => k !== el);
+          game.comboEls = {}; game.comboEls[el] = now;
+          if (tried) {
+            logEvent("combo-sealed", { el, tier: maxTier });
+            if (now - (game.mixSealToastAt || 0) > 4) {
+              game.mixSealToastAt = now;
+              showToast("Spell-mixing is sealed — defeat the Pack Alpha to fuse elements.", 2.6, true); // priority: the NEXT cast's "Lightning!" label toast must not bury the explanation mid-mash
+            }
+          }
+          return false;
+        }
         game.comboEls[el] = now;
         let set = Object.keys(game.comboEls);
         if (set.length < 2) return false; // first element of a chain → run its solo spell
         if (set.length > maxTier) {
           // chain exceeds the unlocked tier (e.g. a 3rd element before 3-mixing is earned) -> start fresh, cast solo
           game.comboEls = {}; game.comboEls[el] = now;
+          logEvent("combo-sealed", { el, tier: maxTier, tried: set });
+          if (now - (game.mixSealToastAt || 0) > 4) {
+            game.mixSealToastAt = now;
+            showToast("Triple fusion is sealed — defeat the Hex Conduit to chain 3 elements.", 2.6, true); // priority, same reason as the mix-1 seal toast
+          }
           return false;
         }
         const combo = COMBO_TABLE[set.slice().sort().join("+")];
@@ -5904,12 +5905,6 @@
           createSlowDome(pos, radius * 1.6);
           if (damage) radialDamage(pos, radius * 1.4, damage);
           blip({ type: "sine", freq: 340, dur: 0.5, gain: 0.08, freqEnd: 110 });
-        } else if (special.effect === "champagne") {
-          // CONFETTI (birthday cup): a festive champagne burst that pops the crowd.
-          radialDamage(pos, radius, damage);
-          createChampagne(pos, 40);
-          createFireworks(pos, 30, 0xffd24c);
-          addTrauma(0.4);
         } else if (special.effect === "stun") {
           // KID STUN: the kids streak out to EVERY mob on the field and pin it in place for 6s.
           game.hitStop = Math.max(game.hitStop, 0.1);
@@ -5957,7 +5952,7 @@
         } else if (special.effect === "deflect") {
           // DEFLECT: a shockwave that hurls every nearby mob off the map — instant kill (bosses just reel).
           for (const e of [...game.enemies]) {
-            if (e.dead || e.pos.distanceTo(player.pos) > 11) continue;
+            if (e.dead || e.intangible > 0 || e.pos.distanceTo(player.pos) > 11) continue; // intangible (blinked) bosses can't be hit — this was the one AoE that ignored it
             const out = e.pos.clone().sub(player.pos);
             if (out.lengthSq() < 0.01) out.set(0, 1);
             out.normalize();
@@ -6018,9 +6013,12 @@
           }
           createChainNet(pos, radius);
         } else if (special.effect === "barrage") {
+          // Target only LIVE, tangible enemies — raw indexing into game.enemies landed bolts and
+          // damage rolls on corpses (including ones the barrage itself just killed) and blinked bosses.
+          const live = game.enemies.filter((e) => !e.dead && !(e.intangible > 0));
           for (let i = 0; i < 16; i += 1) {
-            const enemy = game.enemies[i % Math.max(1, game.enemies.length)];
-            if (enemy) {
+            const enemy = live[i % Math.max(1, live.length)];
+            if (enemy && !enemy.dead) {
               createRuneBolt(i % 2 ? kids[0].pos : kids[1].pos, enemy.pos, i % 2 ? 0xffd24c : 0x65d5ff);
               damageEnemy(enemy, damage, enemy.pos.clone().sub(pos));
             }
@@ -6048,11 +6046,6 @@
           radialDamage(pos, radius, damage);
           createFireworks(pos, 96, 0xff7138);
           createChainSweep(pos, player.facing, radius * 0.72, 0xf8bf48, true);
-        } else if (special.effect === "fireworks") {
-          // FIREWORKS: the kids run to the bottom of the map and launch a 6s multicolor barrage.
-          game.fireworksT = 6;
-          game.fireworksGap = 0;
-          createFireworks(pos, 24);
         } else if (special.effect === "incinerate") {
           // TOAST: a champagne burst that INCINERATES — anything it kills burns to ash; survivors ignite.
           for (const e of [...game.enemies]) {
@@ -6063,11 +6056,6 @@
           }
           createChampagne(pos, 40);
           createFireworks(pos, 18, 0xff7138);
-        } else if (special.effect === "geyser") {
-          // GEYSER: a 6s water LASER beam (follows your aim) that blasts mobs off the map with a splash.
-          game.geyser = 6;
-          createWaterWaveZone(pos, 6, damage * 0.5);
-          blip({ type: "sine", freq: 220, dur: 0.4, gain: 0.12, freqEnd: 90 });
         } else if (special.effect === "sweep") {
           // RUSH: Santiago DASHES across the arena in his facing direction, trampling everything in a line.
           rushDash(damage);
@@ -6140,13 +6128,6 @@
           createFireworks(pos, 50, 0xffd24c);
           addTrauma(0.9);
           screenPulse(0.4, 0xb3131b);
-        } else if (special.effect === "clear" || special.effect === "blast") {
-          // CATACLYSM (birthday): a massive point explosion.
-          radialDamage(pos, radius, damage);
-          createChainSweep(pos, player.facing, radius, special.birthday ? 0xf8bf48 : 0xb3131b, true);
-          createFireworks(pos, 70, 0xffd24c);
-          createRing(pos, 0xb3131b, radius * 0.7);
-          addTrauma(0.8);
         }
       }
 
@@ -6478,12 +6459,36 @@
       // transforms (position, facing rotation.z, flash/spawn-pop scale) + the hitbox (enemy.radius) are group-level,
       // so this is purely cosmetic. Loaded once per type via a guarded dynamic import (smoke-safe), then cloned per enemy.
       const MOB_GLB = { basic: "ash_dead.glb", crawler: "crawler.glb", hugger: "hugger.glb", ranged: "ranged.glb", stalker: "stalker.glb", lurker: "lurker.glb", brute: "brute.glb", wisp: "wisp.glb", bursar: "bursar.glb", spitter: "spitter.glb", shield: "shield.glb", "boss:tyrant": "boss-tyrant.glb", "boss:warden": "boss-warden.glb", "boss:alpha": "boss-alpha.glb", "boss:conduit": "boss-conduit.glb", "boss:colossus": "boss-colossus.glb" };
-      const MOB_GLB_H = { basic: 1.5, crawler: 1.0, hugger: 1.25, ranged: 1.6, stalker: 1.3, lurker: 1.6, brute: 2.2, wisp: 1.5, bursar: 1.7, spitter: 1.2, shield: 1.6, "boss:tyrant": 3.5, "boss:warden": 3.5, "boss:alpha": 3.2, "boss:conduit": 3.5, "boss:colossus": 4.5 }; // visual height per type (group-local units)
+      const MOB_GLB_H = { basic: 1.5, crawler: 1.0, hugger: 1.875, ranged: 1.6, stalker: 1.3, lurker: 1.6, brute: 2.2, wisp: 1.5, bursar: 1.7, spitter: 1.2, shield: 1.6, "boss:tyrant": 3.5, "boss:warden": 3.5, "boss:alpha": 3.2, "boss:conduit": 3.5, "boss:colossus": 4.5 }; // visual height per type (group-local units); hugger 1.25 -> 1.875 = +50% (user direction 2026-06-09, radius scaled to match)
       const MOB_GLB_CFG = { rx: Math.PI / 2, ry: 0, rz: 0, yOff: 0 }; // up=+z (TOP-DOWN): feet on the play surface, body toward the camera; the game's rotation.z turns them in-plane to face heading
-      const MOB_FLIP = { spitter: true, brute: true, stalker: true, ranged: true, crawler: true, basic: true, shield: true, lurker: true, "boss:tyrant": true, "boss:warden": true, "boss:alpha": true, "boss:colossus": true }; // these face butt-to-player -> yaw 180
+      const MOB_FLIP = { spitter: true, brute: true, stalker: true, ranged: true, crawler: true, basic: true, shield: true, lurker: true, hugger: true, "boss:tyrant": true, "boss:warden": true, "boss:alpha": true, "boss:colossus": true }; // these face butt-to-player -> yaw 180 (hugger caught by the grab pose throwing arms BACKWARD in playtest — it was walking butt-first all along)
       const MOB_GLB_SCALE = { stalker: [1.95, 1, 1], hugger: [1, 1, 1.15], "boss:tyrant": [1, 1, 1.2] }; // non-uniform pre-fit scale — thicken thin axes (stalker X; hugger +15% & tyrant +20% on Z = profile)
       const MOB_GLB_ALT = { shield: "shield-broken.glb" }; // swapped in (state) when enemy.broken -> shield destroyed
       const MOB_GLB_POP = { bursar: "bursar-popped.glb" };  // transient CORPSE spawned at detonation (head popped), fades as particles decay
+      // RIGGED mobs: auto-rigged variants of the same GLBs (4-bone chain root/spine/chest/head, heat weights;
+      // built offline by dev/autorig/, files in mobs/rigged/ with identical names). Skinned clones get a procedural
+      // bone drive (idle sway + lean-with-movement + hit flinch) layered ON TOP of the breathe/bob. Per-file
+      // fallback to the static original keeps a missing/broken rigged GLB harmless. Flip to false to compare.
+      const MOB_RIGGED = true;
+      const MOB_SWAY = { // bone-drive amplitudes (rad): sway = side roll, pitch = idle nod, lean = into movement, flinch = on-hit recoil (reads enemy.flash)
+        default: { sway: 0.085, pitch: 0.055, lean: 0.20, flinch: 0.30 },
+        basic: { sway: 0.13, pitch: 0.07, lean: 0.30, flinch: 0.34, legAmp: 1.25 }, // ash-dead ZOMBIE: heavy lurch over the biped legL/legR shuffle (legAmp scales stride + weight-shift; +25% user tune 2026-06-09), arms held forward (MOB_STRIKE.basic.base)
+        wisp: { sway: 0.16, pitch: 0.04, lean: 0.10, flinch: 0.22, float: true }, // FLOATER: flame tip whips, body hovers on the float drive, dangle-* legs trail on the wave
+        bursar: { sway: 0.09, pitch: 0.06, lean: 0.14, flinch: 0.32, legAmp: 1.15, legRate: 0.62 }, // DOPEY bomber: slow biped waddle, bulb dome jiggles, stubby wrist arms float
+        spitter: { sway: 0.04, pitch: 0.03, lean: 0.12, flinch: 0.26, legAmp: 0.85, legRate: 1.5 }, // stubby quadruped: quick little leg-* steps, body stays level
+        shield: { sway: 0.04, pitch: 0.035, lean: 0.10, flinch: 0.18, legAmp: 1.0, legRate: 0.8 }, // Bulwark: steady braced march behind the shield bone
+        lurker: { sway: 0.10, pitch: 0.04, lean: 0.06, flinch: 0.26, drape: true, fabAmp: 2.4 }, // HEAD-LED wraith: diamond pitches into the glide, the fab* cloak chains hang + float like gravity (drape blocks below; exaggeration pass 2026-06-09: fabAmp 1.9->2.4, head 0.38->0.48, trail +25%)
+        hugger: { sway: 0.12, pitch: 0.05, lean: 0.22, flinch: 0.30 }, // exaggerated floaty arms ARE its locomotion read (mobs are never idle in play)
+        stalker: { sway: 0.05, pitch: 0.04, lean: 0.20, flinch: 0.28, gallop: true, legRate: 1.0, legAmp: 1.2 }, // demon-ghost cheetah: claw-over-claw gallop + serpentine tail-* trail + bound lurch
+        crawler: { sway: 0.04, pitch: 0.03, lean: 0.14, flinch: 0.24, legAmp: 1.5, scratch: true }, // level spider body — exaggerated leg-* gait + front-claw SCRATCH flurry in contact range
+        ranged: { sway: 0.10, pitch: 0.05, lean: 0.22, flinch: 0.22, legAmp: 1.1 }, // SEIDR REVENANT: tall wraith on biped legL/legR root-trunks; casting armL levels at the player (MOB_STRIKE base + windup overlay), hanging chest.1 arm + halo ride the generic wave
+        brute: { sway: 0.055, pitch: 0.045, lean: 0.26, flinch: 0.20, legAmp: 1.3, legRate: 0.55 }, // LUMBERING gorilla: slow heavy biped stride, huge wrist/hand knuckle arms ride the float
+        "boss:tyrant": { sway: 0.045, pitch: 0.035, lean: 0.14, flinch: 0.14, legAmp: 1.3, legRate: 0.55 }, // 6-legged king: big SLOW deliberate strides (legRate scales the step clock)
+        "boss:warden": { sway: 0.045, pitch: 0.035, lean: 0.14, flinch: 0.14, legAmp: 1.25, legRate: 0.5 }, // HEAVYWEIGHT: ponderous wide-stance biped, big arm swings
+        "boss:alpha": { sway: 0.05, pitch: 0.04, lean: 0.22, flinch: 0.16, legAmp: 1.45, legRate: 1.15, headTrack: true }, // big muscular DOG: fast quadruped trot, head locked on the prey while it circles
+        "boss:conduit": { sway: 0.05, pitch: 0.035, lean: 0.12, flinch: 0.14, float: true }, // FLOATER wraith: hovers + banks, cape-* chains ripple
+        "boss:colossus": { sway: 0.04, pitch: 0.03, lean: 0.18, flinch: 0.12, legAmp: 1.5, legRate: 0.9 }, // FREAK ATHLETE: giant strides at near-runner cadence — huge AND fast
+      };
       // Per-type GLOW: drive emissive from the model's own baseColorTexture so the BRIGHT parts self-illuminate
       // (lurker diamond, wisp bulb, bursar dome) while the dark body stays dark; tint pushes the hue + it blooms.
       const MOB_GLOW = {
@@ -6596,11 +6601,31 @@
         const eye = new THREE.Mesh(new THREE.SphereGeometry(C.r, 14, 12), m);
         eye.position.set(C.pos[0], C.pos[1], C.pos[2]); scn.add(eye);
       }
-      const mobModelCache = {}; const mobModelWaiters = {}; let _mobLoader = null;
+      const mobModelCache = {}; const mobModelWaiters = {}; let _mobLoader = null; let _SkelU = null;
       async function ensureMobLoader() {
         if (_mobLoader) return _mobLoader;
         try { const m = await import("three/addons/loaders/GLTFLoader.js"); _mobLoader = new m.GLTFLoader(); } catch (e) { _mobLoader = "failed"; }
+        if (_mobLoader !== "failed") { try { _SkelU = await import("three/addons/utils/SkeletonUtils.js"); } catch (e) { _SkelU = null; } } // skeleton-aware clone for RIGGED mobs
         return _mobLoader;
+      }
+      // rigged-first load with per-file fallback to the static original (missing/broken rigged GLB -> old behavior)
+      function loadMobGLB(loader, file, onOk, onFail) {
+        if (!MOB_RIGGED) { loader.load("./mobs/" + file, onOk, undefined, onFail); return; }
+        loader.load("./mobs/rigged/" + file, onOk, undefined, () => loader.load("./mobs/" + file, onOk, undefined, onFail));
+      }
+      // Mob clones share the template's geometries/materials (tpl.clone / SkeletonUtils.clone do NOT
+      // deep-copy them), but disposeObject on every enemy death disposed anything not in the shared
+      // sets — so each kill nuked the LIVE template resources and the next clone re-uploaded buffers
+      // + recompiled shaders. Register every template resource as shared before the template is used.
+      function shareMobTpl(wrap) {
+        wrap.traverse((o) => {
+          if (!o.isMesh && !o.isLine && !o.isPoints) return;
+          if (o.geometry) sharedGeometries.add(o.geometry);
+          const m = o.material;
+          if (Array.isArray(m)) for (const mm of m) { if (mm) sharedMaterials.add(mm); }
+          else if (m) sharedMaterials.add(m);
+        });
+        return wrap;
       }
       function prepMobTemplate(scn, type) {
         if (MOB_GLB_SCALE[type]) { const s3 = MOB_GLB_SCALE[type]; scn.scale.set(scn.scale.x * s3[0], scn.scale.y * s3[1], scn.scale.z * s3[2]); } // thicken thin axes before fit/center
@@ -6617,8 +6642,10 @@
         const _gb = new THREE.Box3().setFromObject(wrap), _gc = new THREE.Vector3(); _gb.getCenter(_gc);
         wrap.position.set(-_gc.x, -_gc.y, -_gb.min.z + 0.05 + MOB_GLB_CFG.yOff);
         scn.traverse((o) => { if (o.isMesh && o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach((mm) => { if (mm.metalness !== undefined) mm.metalness = 0; if (mm.roughness !== undefined) mm.roughness = 0.85; mm.needsUpdate = true; }); }); // GLBs default to metalness=1 (metals -> near-black w/o an env map); force DIFFUSE so brightness is consistent
-        if (type === "boss:conduit") { wrap.userData.glowMats = applyConduitFX(scn); return wrap; } // bespoke two-band FX
-        if (MOB_FX[type]) { wrap.userData.glowMats = applyMobFX(scn, MOB_FX[type]); return wrap; } // generic HSV albedo FX (lurker, spitter)
+        let _hasSkin = false; scn.traverse((o) => { if (o.isSkinnedMesh) { _hasSkin = true; o.frustumCulled = false; } }); // skinned bounds don't follow bones -> avoid culling pop (same fix as the GLB colossus)
+        wrap.userData.hasSkin = _hasSkin;
+        if (type === "boss:conduit") { wrap.userData.glowMats = applyConduitFX(scn); return shareMobTpl(wrap); } // bespoke two-band FX
+        if (MOB_FX[type]) { wrap.userData.glowMats = applyMobFX(scn, MOB_FX[type]); return shareMobTpl(wrap); } // generic HSV albedo FX (lurker, spitter)
         if (type === "ranged") addRangedAccents(scn); // procedural emissive arrow
         if (type === "boss:alpha") addAlphaEye(scn); // procedural red emissive eye
         const glow = MOB_GLOW[type];
@@ -6639,12 +6666,297 @@
           }
           wrap.userData.glowMats = mats;
         }
-        return wrap;
+        return shareMobTpl(wrap);
+      }
+      function cloneMobTpl(tpl) { // rigged templates need SkeletonUtils.clone (a plain clone stays bound to the TEMPLATE's bones -> frozen bind pose); static templates keep the cheap shared clone
+        return (tpl.userData && tpl.userData.hasSkin && _SkelU && _SkelU.clone) ? _SkelU.clone(tpl) : tpl.clone(true);
+      }
+      function collectMobBones(inst, sk) { // per-INSTANCE bone refs + rest pose for the procedural drive (set post-clone so each enemy owns its quaternions); sk = type key for the per-type grab tune
+        if (!inst || typeof inst.traverse !== "function") return null;
+        const b = { extras: [], tune: MOB_GRAB_TUNE_T[sk] || MOB_GRAB_TUNE };
+        inst.traverse((o) => {
+          if (!o.isBone) return;
+          if (o.name === "spine" || o.name === "chest" || o.name === "head") b[o.name] = o;
+          else if (o.name !== "root") { let d = 0, p = o.parent; while (p && p.isBone) { d += 1; p = p.parent; } o.userData.boneDepth = d; b.extras.push(o); } // BRANCH bones (wrists/tendrils/... from custom viewer rigs) ride a depth-phased follow-through wave
+        });
+        const probe = b.spine || b.extras[0];
+        if (!probe || !probe.quaternion || typeof probe.quaternion.clone !== "function") return null;
+        for (const k of ["spine", "chest", "head"]) if (b[k]) b[k].userData.restQ = b[k].quaternion.clone();
+        for (const o of b.extras) o.userData.restQ = o.quaternion.clone();
+        try { // GRAB pose axes (hugger cling): model-space vertical (arm sweep) + right (fwd pitch) in each
+          // bone's REST local frame — bone-local Euler axes vary per bone on hand-placed rigs. Relative
+          // products cancel the enemy group's yaw; `inner` (wrap's child) bakes in the MOB_FLIP yaw.
+          const inner = inst.children && inst.children[0];
+          if (inner && inner.getWorldQuaternion) {
+            inst.updateMatrixWorld(true);
+            const mQ = inner.getWorldQuaternion(new THREE.Quaternion()), w = new THREE.Vector3();
+            const all = b.extras.slice(); for (const k of ["spine", "chest", "head"]) if (b[k]) all.push(b[k]); // head included: head-track + drape/chomp head effects need its axes (they silently no-opped without)
+            for (const o of all) {
+              const qi = o.getWorldQuaternion(new THREE.Quaternion()).invert();
+              o.userData.gAxisY = new THREE.Vector3(0, 1, 0).applyQuaternion(mQ).applyQuaternion(qi).normalize();
+              o.userData.gAxisX = new THREE.Vector3(1, 0, 0).applyQuaternion(mQ).applyQuaternion(qi).normalize();
+              o.userData.gAxisZ = new THREE.Vector3(0, 0, 1).applyQuaternion(mQ).applyQuaternion(qi).normalize(); // model FORWARD in bone-local (leg lift axis)
+              o.userData.gSide = Math.sign(inner.worldToLocal(o.getWorldPosition(w)).x) || 1;
+              if (/^(wrist|hand|arm)/.test(o.name)) { // arm-chain depth: sweep applies mostly at depth 0 (rest-cached axes compound error down the chain = internal-rotation artifact)
+                let pB = o.parent; while (pB && !pB.isBone) pB = pB.parent;
+                o.userData.armDepth = (pB && pB.userData && pB.userData.armDepth !== undefined) ? pB.userData.armDepth + 1 : 0;
+              }
+              const lm = o.name.match(/^leg-([LR])(\d+)/); // leg-L1 / leg-R2... + segment children (leg-L1-b) -> SPIDER GAIT
+              if (lm) {
+                o.userData.legSide = lm[1] === "L" ? 1 : -1;
+                o.userData.legIdx = +lm[2];
+                let pL = o.parent; while (pL && !pL.isBone) pL = pL.parent;
+                o.userData.legDepth = (pL && pL.userData && pL.userData.legDepth !== undefined) ? pL.userData.legDepth + 1 : 0;
+                b.hasLegs = true; // -> crab weight-shift body roll replaces the floaty sway
+              }
+              const bm = o.name.match(/^leg([LR])(?:-|$)/); // legL / legL-b (no dash before the side) -> BIPED zombie gait
+              if (bm) {
+                o.userData.bipedSide = bm[1] === "L" ? 1 : -1;
+                let pB2 = o.parent; while (pB2 && !pB2.isBone) pB2 = pB2.parent;
+                o.userData.bipedDepth = (pB2 && pB2.userData && pB2.userData.bipedDepth !== undefined) ? pB2.userData.bipedDepth + 1 : 0;
+                b.hasBiped = true; // -> stride weight-shift body roll
+              }
+              if (/^bulb/.test(o.name)) o.userData.isBulb = true; // bulb* -> queasy abdomen jiggle
+              if (/^tail/.test(o.name)) { // tail-1/tail-2... -> SERPENTINE wave (lateral slither, widening to the tip)
+                let pT = o.parent; while (pT && !pT.isBone) pT = pT.parent;
+                o.userData.tailDepth = (pT && pT.userData && pT.userData.tailDepth !== undefined) ? pT.userData.tailDepth + 1 : 0;
+              }
+            }
+            bakeMobGrab(b, inner, b.tune);
+          }
+        } catch (e) { /* grab pose stays off without axes (smoke stubs / odd hierarchies) */ }
+        return b;
+      }
+      const MOB_GRAB_TUNE = { reach: 0.5, converge: -0.2, roll: -1.2 }; // user-tuned in the viewer (2026-06-09 hugger pose export); default for arm-chain types
+      const MOB_GRAB_TUNE_T = { basic: { reach: 0.55, converge: -0.05, roll: 0 }, ranged: { reach: 0.95, converge: 0, roll: 0 }, stalker: { reach: 0.5, converge: 0.4, roll: -0.5 } }; // per-type override: zombie arms thrust STRAIGHT forward; ranged = one long straight AIM; stalker = strong converge -> the arms WRAP around the victim (Dracula envelop)
+      // Per-type per-bone FK offsets (radians, from the viewer's "export pose" button) layered onto the
+      // grab pose, blended by grab strength. Keyed by MOB_SWAY-style type key -> bone name -> {x,y,z}.
+      const MOB_GRAB_POSE = {
+        hugger: { // user-authored claw pose (dev/autorig/joints/hugger-pose.json)
+          wristL: { z: 0.5061 }, handL: { y: 1.0472, z: -0.3491 }, handL1: { x: -0.8727 },
+          wristR: { z: -0.5411 }, handR: { x: -1.0472, y: -0.1047, z: 0.0873 }, handR1: { x: -0.5934 },
+        },
+      };
+      function bakeMobGrab(b, inner, tune) {
+        const tn = tune || MOB_GRAB_TUNE;
+        // Bake per-bone GRAB deltas: one-pass CCD aiming each arm chain at a target in front of the
+        // body (derived from the chain's own length + model forward -> no per-model tuning; claws
+        // face the player BY CONSTRUCTION — naive per-link sweeps compound rest-axis error into the
+        // internal-rotation artifact). Runs once per clone at rest; runtime just slerps the deltas.
+        const innerQ = inner.getWorldQuaternion(new THREE.Quaternion());
+        const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(innerQ);
+        const right = new THREE.Vector3(1, 0, 0).applyQuaternion(innerQ);
+        const tmpQ = new THREE.Quaternion(), pwq = new THREE.Quaternion(), idQ = new THREE.Quaternion();
+        for (const root of b.extras.filter((o) => o.userData.armDepth === 0)) {
+          const chain = [root];
+          for (let cur = root; ; ) { const nxt = cur.children.find((c) => c.isBone && c.userData.armDepth !== undefined); if (!nxt) break; chain.push(nxt); cur = nxt; }
+          const P = chain.map((o) => o.getWorldPosition(new THREE.Vector3()));
+          let len = 0; for (let i = 1; i < P.length; i += 1) len += P[i].distanceTo(P[i - 1]);
+          len += (chain.length > 1 ? len / (chain.length - 1) : 0.3) * 0.7; // claw extends past the last joint
+          const side = root.userData.gSide || 1;
+          const target = P[0].clone().addScaledVector(fwd, len * tn.reach).addScaledVector(right, -side * len * tn.converge).add(new THREE.Vector3(0, len * 0.05, 0));
+          const F = [1, 0.55, 0.3];
+          for (let i = 0; i < chain.length; i += 1) {
+            const o = chain[i];
+            const bp = o.getWorldPosition(new THREE.Vector3());
+            const tip = i + 1 < chain.length ? chain[i + 1].getWorldPosition(new THREE.Vector3())
+              : bp.clone().add(new THREE.Vector3(0, 0.2, 0).applyQuaternion(o.getWorldQuaternion(tmpQ))); // last bone: along its own axis
+            tmpQ.setFromUnitVectors(tip.sub(bp).normalize(), target.clone().sub(bp).normalize());
+            tmpQ.slerp(idQ, 1 - (F[i] !== undefined ? F[i] : 0.25)); // falloff down the chain
+            o.parent.getWorldQuaternion(pwq);
+            o.quaternion.premultiply(pwq.clone().invert().multiply(tmpQ).multiply(pwq));
+            o.updateMatrixWorld(true);
+          }
+          for (const o of chain) { o.userData.grabQ = o.userData.restQ.clone().invert().multiply(o.quaternion); o.quaternion.copy(o.userData.restQ); }
+        }
+      }
+      let _gqMob = null, _gIdQ = null, _gAxisMob = null;
+      function grabPoseMob(b, angY, angX, angZ) { // model-space rotations: Y = vertical sweep, X = forward pitch, Z = roll about model-forward (leg lift)
+        if (!b || !b.userData || !b.userData.gAxisY) return;
+        if (!_gqMob) { try { _gqMob = new THREE.Quaternion(); } catch (e) { return; } }
+        if (angY) b.quaternion.multiply(_gqMob.setFromAxisAngle(b.userData.gAxisY, angY));
+        if (angX) b.quaternion.multiply(_gqMob.setFromAxisAngle(b.userData.gAxisX, angX));
+        if (angZ && b.userData.gAxisZ) b.quaternion.multiply(_gqMob.setFromAxisAngle(b.userData.gAxisZ, angZ));
+      }
+      let _mbE = null, _mbQ = null; // lazy scratch (smoke-safe: only built once a real skinned clone animates)
+      function setMobBone(bone, rx, ry, rz) {
+        if (!bone || !bone.userData || !bone.userData.restQ) return;
+        if (!_mbQ) { try { _mbE = new THREE.Euler(); _mbQ = new THREE.Quaternion(); } catch (e) { return; } }
+        _mbE.set(rx, ry, rz); _mbQ.setFromEuler(_mbE);
+        bone.quaternion.copy(bone.userData.restQ).multiply(_mbQ);
+      }
+      // bones point up the body (glTF +Y): X = pitch (nod/lean/flinch), Z = side sway. Amplitudes stay SMALL —
+      // the depth/shadow pass and culling still see the bind pose, and heavy bends would expose the auto weights.
+      function applyPoseOffset(o, p, g) { // per-bone FK offset (radians, viewer "export pose") blended by grab strength
+        if (!o || !p || !_mbQ || !o.userData || !o.userData.restQ) return;
+        _mbE.set((p.x || 0) * g, (p.y || 0) * g, (p.z || 0) * g);
+        o.quaternion.multiply(_mbQ.setFromEuler(_mbE));
+      }
+      // STRIKE (user direction 2026-06-09, replaces the repeating windup/slam loop): one-shot OPEN ->
+      // CLOSE, then a held PUMP. Negative envelope = the grab machinery played in REVERSE (arms
+      // extrapolate wide past rest, claws splay, palms roll out, body rears) so the open is the exact
+      // mirror of the authored close — it flares wide on approach, SNAPS shut past the full hold, then
+      // rhythmically squeezes while it stays on the player. __strikeT resets when the player escapes,
+      // so a re-approach replays the open. >1 = overshoot (extra slam pitch below) = each squeeze presses.
+      function mobStrikeEnv(t) {
+        if (t < 0.42) { const q = t / 0.42; return -0.55 * (q * q * (3 - 2 * q)); }              // arms flare WIDE
+        if (t < 0.68) { const q = (t - 0.42) / 0.26; return -0.55 + 1.9 * q * q * q; }           // SNAP shut to 1.35
+        if (t < 0.95) { const q = (t - 0.68) / 0.27; return 1.35 - 0.35 * (q * q * (3 - 2 * q)); } // settle to the hold
+        return 1 + 0.16 * Math.sin((t - 0.95) * (Math.PI * 2 / 0.7));                            // PUMP: ~0.7s squeeze around the grip
+      }
+      // BITE cycle (ash-dead zombie, repeats while in range): rear back as the arms sink toward the
+      // walk pose -> LUNGE past full extension (overshoot -> slam pitch + head CHOMP) -> recover, again.
+      function mobBiteEnv(t) {
+        const T = 1.25, p = (t % T) / T;
+        if (p < 0.30) { const q = p / 0.30; return 1 - 0.45 * (q * q * (3 - 2 * q)); }            // rear: sink to the arms-forward walk floor
+        if (p < 0.42) { const q = (p - 0.30) / 0.12; return 0.55 + 0.95 * q * q * q; }            // LUNGE: cubic snap to 1.5
+        if (p < 0.70) { const q = (p - 0.42) / 0.28; return 1.5 - 0.5 * (q * q * (3 - 2 * q)); }  // recover to the full reach
+        return 1;
+      }
+      function mobEnvelopEnv(t) { // Dracula ENVELOP (stalker): arms + cloak flare GRAND-wide, then wrap shut around the victim, slow re-pump
+        const T = 2.0, p = (t % T) / T;
+        if (p < 0.28) { const q = p / 0.28; return -0.85 * (q * q * (3 - 2 * q)); }                 // the grand OPEN (negative = aim played in reverse, arms spread)
+        if (p < 0.40) { const q = (p - 0.28) / 0.12; return -0.85 + 2.2 * q * q * q; }              // SNAP shut past the hold
+        if (p < 0.62) { const q = (p - 0.40) / 0.22; return 1.35 - 0.35 * (q * q * (3 - 2 * q)); }  // settle into the wrap
+        return 1;
+      }
+      const MOB_STRIKE = { // per-type attack ANIMATION (visual only — combat latch/hitboxes untouched): trigger distance, envelope, base = always-on arm-pose floor
+        hugger: { dist: 2.4, env: mobStrikeEnv }, // flare open -> snap shut -> pump (2x the 1.2 combat latch)
+        stalker: { dist: 2.8, env: mobEnvelopEnv }, // Dracula: opens WIDE on the approach, cloaks the victim on contact
+        basic: { dist: 1.7, env: mobBiteEnv, base: 0.55 }, // zombie: walks arms-forward at the base floor, lunges for the bite in range
+        ranged: { dist: 6.0, env: () => 0.85, base: 0.45 }, // revenant: casting armL LEVELS at the player across the 5.7 shooter standoff (constant aim, no cycle); the windup/fire snap is the overlay in updateMobModels (proximity clocks can't sync to the discrete fire)
+      };
+      function driveMobBones(b, cfg, swy, lg, mvS, flinch, ph, amp, grab, gp, scr) {
+        if (!b) return;
+        const g = grab || 0, gC = Math.min(1, g), slam = Math.max(0, g - 1), gOn = Math.abs(g) > 0.002; // g overshoots 1 on the snap; g < 0 = the OPEN flare (grab played in reverse)
+        const sc = scr || 0;
+        setMobBone(b.spine, cfg.pitch * swy + cfg.lean * mvS + cfg.flinch * flinch, 0, cfg.sway * swy);
+        setMobBone(b.chest, cfg.pitch * 0.8 * lg + cfg.lean * 0.35 * mvS, 0, cfg.sway * 0.8 * lg);
+        setMobBone(b.head, -cfg.pitch * lg - cfg.flinch * 0.8 * flinch, 0, -cfg.sway * 0.5 * lg);
+        if (b.hasLegs) { // crab WEIGHT-SHIFT: sharpened flat-top roll synced to the step clock — body PLANTS on a side then snaps across (de-floats the smooth sway)
+          const crab = Math.tanh(2.4 * Math.sin((ph || 0) * 2.5)) * (0.2 + 0.8 * mvS) * (cfg.legAmp || 1);
+          grabPoseMob(b.spine, -0.035 * crab, 0, 0.065 * crab);
+          grabPoseMob(b.chest, 0, 0, 0.05 * crab);
+        }
+        if (b.hasBiped) { // zombie WEIGHT-SHIFT: torso rolls onto the planted side each stride (same clock as the legL/legR gait, legRate scales the cadence)
+          const zsh = Math.sin((ph || 0) * 1.7 * (cfg.legRate || 1) - 0.6) * (0.15 + 0.85 * mvS) * (cfg.legAmp || 1);
+          grabPoseMob(b.spine, 0, 0, 0.07 * zsh); grabPoseMob(b.chest, 0, 0, 0.05 * zsh); grabPoseMob(b.head, 0, 0, -0.05 * zsh); // head counter-rolls = loose neck
+        }
+        if (cfg.drape) { // HEAD-LED wraith (lurker): the diamond pitches INTO the glide, the cloak hangs off it and TRAILS like cloth in air
+          const dl = Math.min(1, mvS * 1.3);
+          grabPoseMob(b.head, 0, 0.48 * dl); grabPoseMob(b.chest, 0, -0.13 * dl); grabPoseMob(b.spine, 0, -0.22 * dl);
+        }
+        if (sc > 0.01) { grabPoseMob(b.spine, 0, 0.10 * sc); grabPoseMob(b.chest, 0, 0.14 * sc); } // scratch: pitch into the target
+        if (gOn) { grabPoseMob(b.spine, 0, 0.10 * g + 0.20 * slam); grabPoseMob(b.chest, 0, 0.16 * g + 0.25 * slam); } // lean-in (rears back while negative); slam doubles it over for the hit
+        if (slam > 0) grabPoseMob(b.head, 0, 0.5 * slam); // the head CHOMPS down with the overshoot (zombie bite; hugger head-butts the squeeze)
+        if (gp && gOn) { applyPoseOffset(b.spine, gp.spine, g); applyPoseOffset(b.chest, gp.chest, g); applyPoseOffset(b.head, gp.head, g); }
+        if (b.extras && b.extras.length) { // branch bones: traveling follow-through (deeper joint = later phase -> tendril ripple, wrist lag)
+          const p0 = ph || 0, am = amp === undefined ? 1 : amp;
+          for (let i = 0; i < b.extras.length; i += 1) {
+            const o = b.extras[i], d = (o.userData && o.userData.boneDepth) || 1;
+            const a = cfg.sway * 1.1 * am + cfg.flinch * 0.45 * flinch;
+            if (o.userData && o.userData.isBulb) { // BULB jiggle (bulb* bones): incommensurate sines + non-uniform scale pulse = gross peristaltic abdomen (kept deliberately after the crawler's mis-weight accident read so well)
+              setMobBone(o, 0.07 * Math.sin(p0 * 0.9), 0, 0.06 * Math.sin(p0 * 0.7 + 1.7));
+              if (o.scale && o.scale.set) o.scale.set(1 + 0.06 * Math.sin(p0 * 0.8 + 0.3), 1 + 0.05 * Math.sin(p0 * 1.1 + 2.1), 1 + 0.05 * Math.sin(p0 * 1.3 + 4.2));
+              if (gp && gOn) applyPoseOffset(o, gp[o.name], g);
+              continue;
+            }
+            if (o.userData && o.userData.legDepth !== undefined) { // SPIDER GAIT (leg-* chains): alternating diagonal sets — swing about model-vertical, lift about model-forward
+              const ls = o.userData.legSide || 1, li = o.userData.legIdx || 1;
+              const scrF = li === 1 ? sc : 0; // front pair trades the gait for the SCRATCH FLURRY near the player
+              const lp = p0 * 5.0 * (cfg.legRate || 1) + ((li + (ls > 0 ? 0 : 1)) % 2) * Math.PI + li * 0.45; // diagonal pairs out of phase + per-leg stagger (legRate: heavy types step slower)
+              const stepM = (0.12 + 0.88 * mvS) * (cfg.legAmp || 1) * (1 - scrF); // near-still when parked -> EXAGGERATED scuttle at field speed (legAmp per type)
+              const sw = Math.sin(lp) * 0.38 * stepM, lift = Math.max(0, Math.cos(lp)); // lift on the return stroke
+              const lf = lift * lift * 0.34 * stepM;
+              setMobBone(o, 0, 0, 0); // gait replaces the generic wave (rest base, then model-space rotations)
+              if (o.userData.legDepth === 0) grabPoseMob(o, sw, 0, -ls * lf);
+              else grabPoseMob(o, -sw * 0.55, 0, ls * lf * 1.1); // knees/feet pump harder than the hip
+              if (scrF > 0.01) { // FLURRY: fast alternating raise-and-slash, the whip amplifying toward the claw tip
+                const fph = p0 * 7 + (ls > 0 ? 0 : Math.PI) - (o.userData.legDepth || 0) * 0.55;
+                const sl = Math.sin(fph), dn = Math.max(0, -sl);
+                const k = o.userData.legDepth === 0 ? 1 : 1.35;
+                grabPoseMob(o, 0.22 * scrF * sl * k, (-0.4 * dn * dn * k - 0.12) * scrF, -ls * 0.08 * scrF);
+              }
+              if (gp && gOn) applyPoseOffset(o, gp[o.name], g);
+              continue;
+            }
+            if (o.userData && o.userData.bipedDepth !== undefined) { // BIPED ZOMBIE GAIT (legL/legR chains): stiff alternating strides about model-right; knee folds through the swing = shuffle
+              const bs = o.userData.bipedSide || 1;
+              const blp = p0 * 1.7 * (cfg.legRate || 1) + (bs > 0 ? 0 : Math.PI); // lurching cadence x legRate (heavies stride slower, dopes waddle), legs in anti-phase (same clock as the weight-shift)
+              const bstep = (0.15 + 0.85 * mvS) * (cfg.legAmp || 1);
+              setMobBone(o, 0, 0, 0); // gait replaces the generic wave
+              if (o.userData.bipedDepth === 0) grabPoseMob(o, 0, Math.sin(blp) * 0.32 * bstep); // thigh stride (model-right pitch: + = forward)
+              else if (o.userData.bipedDepth === 1) { const kc = Math.max(0, Math.cos(blp - 0.5)); grabPoseMob(o, 0, -kc * kc * 0.42 * bstep); } // shin: knee folds BACK through the swing, near-straight at the plant
+              else { const kc = Math.max(0, Math.cos(blp - 0.5)); grabPoseMob(o, 0, kc * kc * 0.2 * bstep); } // foot (3rd segment, user's polished rig): partial counter-flex -> toes DRAG instead of curling under with the shin
+              if (gp && gOn) applyPoseOffset(o, gp[o.name], g);
+              continue;
+            }
+            if (o.userData && o.userData.tailDepth !== undefined) { // SERPENTINE tail (tail-* chains): lateral wave traveling toward the tip, widening as it goes — the snake trail
+              const td = o.userData.tailDepth || 0;
+              const tAmp = (0.16 + 0.14 * td) * (0.35 + 0.65 * mvS) * (cfg.legAmp || 1);
+              const tph = p0 * 2.6 * (cfg.legRate || 1) - td * 1.15; // wave travels DOWN the tail
+              setMobBone(o, 0, 0, 0);
+              grabPoseMob(o, tAmp * Math.sin(tph), 0.06 * (1 + 0.3 * td) * Math.sin(tph * 0.5 + 1.0), 0); // slither (model-yaw) + gentle vertical undulation
+              if (gp && gOn) applyPoseOffset(o, gp[o.name], g);
+              continue;
+            }
+            if (cfg.gallop && o.userData && o.userData.armDepth !== undefined) { // CHEETAH GALLOP (cfg.gallop, e.g. stalker): claw-over-claw strokes ARE the locomotion — fast rake down-back, slower reach recovery
+              const gd = o.userData.armDepth, gside = o.userData.gSide || 1;
+              const gph = p0 * 4.2 * (cfg.legRate || 1) + (gside > 0 ? 0 : 0.4) - gd * 0.55; // arms near-synchronous (rotary gallop), claw lags the shoulder
+              const gW = Math.max(0, 1 - Math.abs(g)); // the ENVELOP grab takes the arms over from the gallop
+              const gAmp = (0.1 + 0.9 * mvS) * (cfg.legAmp || 1) * gW;
+              const stroke = Math.sin(gph) - 0.35 * Math.sin(2 * gph); // skewed: the rake is the fast half
+              setMobBone(o, 0, 0, 0);
+              grabPoseMob(o, -gside * 0.06 * gAmp * Math.sin(gph), (gd === 0 ? 0.42 : gd === 1 ? 0.30 : 0.36) * stroke * gAmp, 0);
+              if (gOn && o.userData.grabQ && _gqMob !== "failed") { // Dracula ENVELOP: flare wide (negative g) then wrap shut — same baked-aim machinery as the arm branch
+                if (!_gIdQ) { try { _gqMob = _gqMob || new THREE.Quaternion(); _gIdQ = new THREE.Quaternion(); _gAxisMob = new THREE.Vector3(0, 1, 0); } catch (e) { _gqMob = "failed"; } }
+                if (_gqMob !== "failed") {
+                  const fr = gd === 0 ? 1 : gd === 1 ? 0.5 : 0.25;
+                  o.quaternion.multiply(_gqMob.slerpQuaternions(_gIdQ, o.userData.grabQ, gC));
+                  o.quaternion.multiply(_gqMob.setFromAxisAngle(_gAxisMob, gside * (b.tune || MOB_GRAB_TUNE).roll * g * fr));
+                  if (slam > 0) grabPoseMob(o, 0, (gd === 0 ? 0.45 : 0.2) * slam); // the wrap CLAMPS down with the overshoot
+                }
+              }
+              if (gp && gOn) applyPoseOffset(o, gp[o.name], g);
+              continue;
+            }
+            const arm = o.userData && o.userData.armDepth !== undefined, wave = arm ? Math.max(0, Math.min(1, 1 - g)) : 1; // arms trade the idle wave for the grab (clamped: the negative flare must not AMPLIFY it)
+            let rx = a * Math.sin(p0 - d * 0.7) * wave, rz = a * 0.6 * Math.sin(p0 - d * 0.7 - 0.4) * wave;
+            if (arm) { // FLOATY arms: slower, larger secondary drift — this IS the locomotion read (mobs are never idle in play), so it grows with movement
+              const fa = cfg.sway * 2.0 * (1 + 0.3 * (o.userData.armDepth || 0)) * (0.7 + 0.5 * mvS) * wave;
+              rx += fa * Math.sin(p0 * 0.45 - d * 0.6);
+              rz += fa * 0.8 * Math.sin(p0 * 0.45 - d * 0.6 - 0.7);
+            }
+            let drapeFb = 0;
+            if (cfg.drape && !arm) { // DRAPE fabric (lurker fab*): small bone-local shimmer — the MAIN flap moved to model -Z below (user 2026-06-09: fabric billows BACKWARD, not symmetric)
+              drapeFb = cfg.sway * (cfg.fabAmp || 1.5) * (1 + 0.4 * d) * (0.45 + 0.55 * mvS);
+              rx += drapeFb * 0.35 * Math.sin(p0 * 0.42 - d * 0.85);
+              rz += drapeFb * 0.3 * Math.sin(p0 * 0.42 - d * 0.85 - 0.9);
+            }
+            setMobBone(o, rx, 0, rz);
+            // BILLOW: model-space flap about model-right, biased BEHIND the model (-Z): sweeps deep backward with a
+            // small forward flick at the cycle's bottom (the flutter), + the movement wake-TRAIL on top — the cloak
+            // streams back as if the diamond drives forward hard.
+            if (cfg.drape && !arm) grabPoseMob(o, 0, -drapeFb * 0.9 * (0.55 + Math.sin(p0 * 0.42 - d * 0.85)) - (0.15 + 0.075 * d) * Math.min(1, mvS * 1.3));
+            if (arm && gOn && o.userData.grabQ && _gqMob !== "failed") { // baked aim pose toward the player + palm roll (negative gC extrapolates OPEN past rest)
+              if (!_gIdQ) { try { _gqMob = _gqMob || new THREE.Quaternion(); _gIdQ = new THREE.Quaternion(); _gAxisMob = new THREE.Vector3(0, 1, 0); } catch (e) { _gqMob = "failed"; } }
+              if (_gqMob !== "failed") {
+                const fr = o.userData.armDepth === 0 ? 1 : o.userData.armDepth === 1 ? 0.5 : 0.25;
+                o.quaternion.multiply(_gqMob.slerpQuaternions(_gIdQ, o.userData.grabQ, gC));
+                o.quaternion.multiply(_gqMob.setFromAxisAngle(_gAxisMob, (o.userData.gSide || 1) * (b.tune || MOB_GRAB_TUNE).roll * g * fr));
+                if (slam > 0) grabPoseMob(o, 0, (o.userData.armDepth === 0 ? 0.45 : 0.2) * slam); // the HIT: arms drive down-forward past the hold
+              }
+            }
+            if (gp && gOn) applyPoseOffset(o, gp[o.name], g);
+          }
+        }
       }
       function applyMobModel(enemy, tpl) {
         if (!enemy.group) return;
         for (const c of enemy.group.children) if (!c.userData || !c.userData.mobModel) c.visible = false; // hide procedural meshes
-        enemy.group.add(tpl.clone(true)); // shared geometry/material -> cheap
+        const inst = cloneMobTpl(tpl);
+        enemy.group.add(inst); // shared geometry/material -> cheap (rigged: shared too, only bones are per-clone)
+        if (tpl.userData && tpl.userData.hasSkin) enemy.mobBones = collectMobBones(inst, enemy.type === "boss" ? "boss:" + (enemy.kind || "tyrant") : enemy.type);
       }
       // Keep GLB mobs UPRIGHT: the game spins enemy.group around Z (camera axis) to face movement, which would
       // TIP a 3D model. Cancel that on the model child each frame so it stays standing, facing the camera/player.
@@ -6655,16 +6967,129 @@
           const e = game.enemies[i]; if (e.type !== "shield" || !e.group) continue;
           for (const c of e.group.children) { if (!c.userData) continue; if (c.userData.isAlt) c.visible = !!e.broken; else if (c.userData.mobModel) c.visible = !e.broken; }
         }
-        // procedural IDLE (static meshes have no rig -> fake life): a subtle breathe + bob on the model child, per-enemy phase
+        // procedural IDLE (breathe + bob on the model child, per-enemy phase) + RIGGED bone drive on top
         const _ts = performance.now() * 0.001;
         for (let i = 0; i < game.enemies.length; i += 1) {
           const e = game.enemies[i]; if (!e.group) continue;
           for (const c of e.group.children) {
             if (!c.userData || !c.userData.mobModel || !c.visible) continue;
-            if (c.userData.animB === undefined) c.userData.animB = { s: c.scale.x, z: c.position.z };
+            if (c.userData.animB === undefined) c.userData.animB = { s: c.scale.x, z: c.position.z, x: c.position.x, y: c.position.y };
             const w = Math.sin(_ts * 2.0 + (e.id || 0) * 1.3);
             c.scale.setScalar(c.userData.animB.s * (1 + w * 0.03)); // ±3% breathe
             c.position.z = c.userData.animB.z + w * 0.05; // gentle bob off the surface
+          }
+          if (e.mobBones || e.mobBonesAlt) { // RIGGED: sway + lean-with-movement + hit flinch (visual layer only — speed from pos deltas, flinch reads enemy.flash)
+            let mv = 0;
+            if (e.pos) {
+              if (e.__lpx === undefined) { e.__lpx = e.pos.x; e.__lpy = e.pos.y; }
+              mv = Math.hypot(e.pos.x - e.__lpx, e.pos.y - e.__lpy) / Math.max(dt, 1e-3);
+              e.__lpx = e.pos.x; e.__lpy = e.pos.y;
+            }
+            e.__mvS = (e.__mvS || 0) + (Math.min(1, mv / 2.4) - (e.__mvS || 0)) * Math.min(1, dt * 8); // smoothed 0..1 (lurker blinks spike mv -> lerp tames it)
+            const sk = e.type === "boss" ? "boss:" + (e.kind || "tyrant") : e.type;
+            const cfgS = MOB_SWAY[sk] || MOB_SWAY.default;
+            const ph = _ts * 2.0 + (e.id || 0) * 1.3; // same phase as the breathe so they read as one motion
+            const amp = 0.45 + 0.55 * e.__mvS; // mostly still when idle, full sway when moving
+            const swy = Math.sin(ph) * amp, lg = Math.sin(ph - 0.5) * amp;
+            const fl = e.flash || 0; // 1 on hit, combat session decays it at 5/s
+            // Per-type ATTACK-ANIM gate (MOB_STRIKE; visual only — combat latch/hitboxes untouched), purely
+            // on current proximity so the attack reads DURING the approach and winds down on escape
+            // (the proximity wind-down prevents the old clinging-forever chase-cycling bug).
+            const stk = MOB_STRIKE[sk];
+            const nearP = !!(stk && !e.dead && e.pos && typeof player !== "undefined" && player && player.pos && e.pos.distanceTo(player.pos) < stk.dist);
+            e.__grabS = (e.__grabS || 0) + ((nearP ? 1 : 0) - (e.__grabS || 0)) * Math.min(1, dt * 6); // attack blend (hugger grab / zombie bite-lunge)
+            e.__strikeT = nearP ? (e.__strikeT || 0) + dt : 0; // strike-cycle clock, only while actually on the player
+            const gRaw = e.__grabS * (e.__strikeT > 0 && stk ? stk.env(e.__strikeT) : 1); // hugger: flare OPEN -> SNAP -> pump; basic: rear -> LUNGE-bite, repeating
+            const gEff = stk && stk.base !== undefined && !e.dead ? Math.max(stk.base, gRaw) : gRaw; // base = zombie arms-forward floor while it walks (hugger has none: its NEGATIVE flare must pass through)
+            const gPose = MOB_GRAB_POSE[sk]; // hand-tuned per-bone FK offsets from the viewer's "export pose"
+            // SCRATCH flurry (cfg.scratch types, e.g. crawler): front leg-1 chains slash while in contact range
+            e.__scrS = (e.__scrS || 0) + (((cfgS.scratch && !e.dead && e.pos && typeof player !== "undefined" && player && player.pos && e.pos.distanceTo(player.pos) < 1.2) ? 1 : 0) - (e.__scrS || 0)) * Math.min(1, dt * 8);
+            // RANGED CAST overlay: the proximity gate above can't see the shooter's discrete 0.45s windup,
+            // so read combat state directly (same read-only pattern as the boss LUNGE below). The windup
+            // RAISES the aim 0.85 -> 1.0 into the release; the actual fire frame (windup just hit 0 with
+            // the 2.1s+ reload set — a 0.3-0.7s cooldown means the out-of-range CANCEL, no snap) kicks a
+            // 1.5 overshoot -> the slam machinery supplies the head-whip + lean + arm down-thrust, then
+            // it decays back onto the constant-aim floor.
+            let gFin = gEff;
+            if (sk === "ranged" && !e.dead) {
+              const wu = e.windup || 0;
+              if (wu > 0) gFin = Math.max(gFin, 1.0 - 0.15 * (wu / 0.45)); // charge: eases up from the 0.85 aim as the windup runs down
+              if ((e.__pwu || 0) > 0 && wu <= 0 && (e.cooldown || 0) > 1.5) e.__castK = 1; // FIRE frame
+              e.__pwu = wu;
+              if ((e.__castK || 0) > 0.01) { gFin = Math.max(gFin, 1.0 + 0.5 * e.__castK); e.__castK *= Math.exp(-dt * 7); } // recoil spike 1.5 -> settle
+            }
+            driveMobBones(e.mobBones, cfgS, swy, lg, e.__mvS, fl, ph, amp, gFin, gPose, e.__scrS);
+            if (e.mobBonesAlt) driveMobBones(e.mobBonesAlt, cfgS, swy, lg, e.__mvS, fl, ph, amp, gFin, gPose, e.__scrS);
+            // LUNGE body language (boss dash): rear BACK through the telegraph, then hard forward lean for the
+            // committed charge — the fat-king lunge read. Eases into the windup, SNAPS into the lunge.
+            const lgT = (e.chargeTel || 0) > 0 ? -1 : (e.charge || 0) > 0 ? 1 : 0;
+            e.__lgS = (e.__lgS || 0) + (lgT - (e.__lgS || 0)) * Math.min(1, dt * (lgT === 1 ? 14 : 5));
+            if (e.mobBones && Math.abs(e.__lgS) > 0.01) {
+              grabPoseMob(e.mobBones.spine, 0, 0.20 * e.__lgS);
+              grabPoseMob(e.mobBones.chest, 0, 0.26 * e.__lgS);
+            }
+            if ((cfgS.gallop || cfgS.headTrack) && e.mobBones && e.mobBones.head && e.pos && typeof player !== "undefined" && player && player.pos) {
+              // HEAD TRACKS THE PLAYER while the body runs its own way (the predator-circling read:
+              // body faces velocity via enemy.headingV, the head counter-turns toward the prey)
+              const aP = Math.atan2(-(player.pos.x - e.pos.x), player.pos.y - e.pos.y); // facingToRotation convention
+              let dYaw = aP - e.group.rotation.z;
+              dYaw = Math.atan2(Math.sin(dYaw), Math.cos(dYaw)); // wrap to [-pi, pi]
+              dYaw = Math.max(-1.0, Math.min(1.0, dYaw)); // necks don't do 180
+              e.__hdY = (e.__hdY || 0) + (dYaw - (e.__hdY || 0)) * Math.min(1, dt * 9);
+              grabPoseMob(e.mobBones.head, e.__hdY, 0, 0);
+            }
+            if (cfgS.float && e.mobBones) { // FLOATERS (wisp, conduit): deep slow two-sine hover + glide pitch into motion + lazy yaw drift — no footfalls, the air carries them
+              const fph = _ts * 0.9 + (e.id || 0) * 1.3;
+              const hov = Math.sin(fph) * 0.10 + Math.sin(fph * 0.53 + 1.2) * 0.04; // incommensurate sines: never loops visibly
+              for (const c of e.group.children) { if (c.userData && c.userData.mobModel && c.visible && c.userData.animB) c.position.z += hov; }
+              grabPoseMob(e.mobBones.spine, 0.05 * Math.sin(fph * 0.7), 0.16 * e.__mvS + 0.04 * Math.sin(fph * 0.6 + 2));
+            }
+            if (e.mobBones && e.mobBones.hasLegs) { // SCUTTLE lurch v2: derived FROM THE LEG EQUATIONS, not a parallel pulse.
+              // Each planted leg in its power stroke (same lp math the bones use, stagger included) contributes
+              // propulsion; the body offset INTEGRATES that with a leak -> surges exactly when feet plant, dips
+              // between sets, shifts toward the loaded side. Combat position/hitbox untouched.
+              const la = cfgS.legAmp || 1, spd = 0.1 + 0.9 * e.__mvS;
+              let push = 0, sideLoad = 0, nL = 0;
+              const exs = e.mobBones.extras || [];
+              for (let k = 0; k < exs.length; k += 1) {
+                const o = exs[k];
+                if (!o.userData || o.userData.legDepth !== 0) continue; // leg roots only
+                const ls = o.userData.legSide || 1, li = o.userData.legIdx || 1;
+                const lp = ph * 5.0 * (cfgS.legRate || 1) + ((li + (ls > 0 ? 0 : 1)) % 2) * Math.PI + li * 0.45; // EXACT bone-drive phase (incl. legRate)
+                const active = li === 1 ? 1 - (e.__scrS || 0) : 1; // front legs stop pushing while they scratch
+                const planted = Math.max(0, -Math.cos(lp)); // inverse of the gait's lift = stance phase
+                push += planted * planted * active;
+                sideLoad += planted * planted * ls * active;
+                nL += active;
+              }
+              if (nL > 0.01) {
+                const v = push / nL - 0.25; // mean of stance^2 over a cycle = 1/4 -> zero-mean propulsion
+                e.__lurch = ((e.__lurch || 0) + v * dt * 1.7 * la * spd) * Math.exp(-dt * 4.0); // integrate + leak back to center
+                const surge = Math.max(-0.12, Math.min(0.12, e.__lurch));
+                const shimmy = 0.03 * (sideLoad / nL) * la * spd; // body rides over whichever side is planted
+                const bob = 0.05 * v * la * spd; // settles between sets, rises on the push
+                for (const c of e.group.children) {
+                  if (!c.userData || !c.userData.mobModel || !c.visible || !c.userData.animB) continue;
+                  c.position.y = (c.userData.animB.y || 0) + surge;
+                  c.position.x = (c.userData.animB.x || 0) + shimmy;
+                  c.position.z += bob; // on top of the breathe bob set above
+                }
+              }
+            } else if (e.mobBones && cfgS.gallop) { // BOUND lurch (gallop types): body surges with each claw stroke — cheetah bound, same clock as the arm rake
+              const la2 = cfgS.legAmp || 1, spd2 = 0.1 + 0.9 * e.__mvS;
+              const gph = ph * 4.2 * (cfgS.legRate || 1) - 0.5; // body lags the rake slightly
+              const power = Math.max(0, Math.sin(gph));
+              const v2 = power * power - 0.25;
+              e.__lurch = ((e.__lurch || 0) + v2 * dt * 2.4 * la2 * spd2) * Math.exp(-dt * 4.5);
+              const surge2 = Math.max(-0.14, Math.min(0.14, e.__lurch));
+              const bob2 = 0.06 * v2 * la2 * spd2; // rocking-horse rise on the pull
+              for (const c of e.group.children) {
+                if (!c.userData || !c.userData.mobModel || !c.visible || !c.userData.animB) continue;
+                c.position.y = (c.userData.animB.y || 0) + surge2;
+                c.position.z += bob2;
+              }
+              if (e.mobBones.spine) { grabPoseMob(e.mobBones.spine, 0, 0.09 * Math.sin(gph - 0.4) * spd2); grabPoseMob(e.mobBones.chest, 0, 0.12 * Math.sin(gph - 0.7) * spd2); } // spine flexes with the bound
+            }
           }
         }
         // transient corpses (popped bursar) fade out while the explosion particles decay, then dispose
@@ -6680,25 +7105,33 @@
       let _glowLights = null; // capped pool of colored point lights for the glow CAST onto nearby surfaces/body
       function updateGlowLights(pulse) {
         if (typeof THREE.PointLight !== "function" || typeof scene === "undefined" || !scene) return;
+        // PERF (2026-06-09 lurker investigation): pool shrunk 6 -> 3 and lights stay visible:true FOREVER,
+        // parked at intensity 0 — toggling .visible changes three.js's lights-state hash, which forces a
+        // shader PROGRAM RECOMPILE across every lit material the first time each visible-count appears
+        // (a 50-200ms hitch; lurker debuts the glow system at wave 7, which is when it was felt). Same
+        // fixed-count strategy as the persistent fxLights. Forward-rendering cost is per-VISIBLE-light x
+        // every lit fragment, so 3 (lurker caps at 2 + 1 spare) beats 6; a 12u distance gate parks lights
+        // for far mobs whose 4.2u cast is off-screen anyway.
         if (!_glowLights) {
-          try { _glowLights = []; for (let i = 0; i < 6; i += 1) { const L = new THREE.PointLight(0xffffff, 0, 4.0, 2); L.visible = false; scene.add(L); _glowLights.push(L); } } catch (e) { _glowLights = "failed"; }
+          try { _glowLights = []; for (let i = 0; i < 3; i += 1) { const L = new THREE.PointLight(0xffffff, 0, 4.0, 2); L.visible = true; scene.add(L); _glowLights.push(L); } } catch (e) { _glowLights = "failed"; }
         }
         if (_glowLights === "failed") return;
+        const glowKey = (e) => (e.type === "boss" ? "boss:" + (e.kind || "tyrant") : e.type); // bosses key MOB_GLOW by composite kind — plain e.type never matched, so boss glows (Rune Warden) cast no light
         const lit = [];
-        for (let i = 0; i < game.enemies.length; i += 1) { const e = game.enemies[i]; if (!e.dead && MOB_GLOW[e.type] && e.pos) lit.push(e); }
+        for (let i = 0; i < game.enemies.length; i += 1) { const e = game.enemies[i]; if (!e.dead && MOB_GLOW[glowKey(e)] && e.pos && e.pos.distanceToSquared(player.pos) < 144) lit.push(e); }
         lit.sort((a, b) => a.pos.distanceToSquared(player.pos) - b.pos.distanceToSquared(player.pos)); // light only the nearest few -> swarm-safe
         for (let i = 0; i < _glowLights.length; i += 1) {
           const L = _glowLights[i], e = lit[i];
-          if (!e) { L.visible = false; L.intensity = 0; continue; }
-          const g = MOB_GLOW[e.type];
-          L.visible = true; if (L.color && L.color.setHex) L.color.setHex(g.color);
+          if (!e) { L.intensity = 0; continue; } // parked, NOT hidden — keeps the lights-state hash stable
+          const g = MOB_GLOW[glowKey(e)];
+          if (L.color && L.color.setHex) L.color.setHex(g.color);
           L.intensity = 2.6 * (pulse || 1); L.distance = 4.2; L.decay = 2;
           L.position.set(e.pos.x, e.pos.y + 0.45, (typeof surfaceZ === "function" ? surfaceZ(e.pos.x, e.pos.y) : 0.4) + 0.7);
         }
       }
       function attachMobModel(enemy, type) {
         const key = type === "boss" ? "boss:" + (enemy.kind || "tyrant") : type; // bosses are one type, many KINDS
-        if (MOB_GLB_ALT[key]) loadExtra(MOB_GLB_ALT[key], key, (tpl) => { if (!enemy.dead && enemy.group) { const inst = tpl.clone(true); inst.visible = false; inst.userData.mobModel = true; inst.userData.isAlt = true; enemy.group.add(inst); } });
+        if (MOB_GLB_ALT[key]) loadExtra(MOB_GLB_ALT[key], key, (tpl) => { if (!enemy.dead && enemy.group) { const inst = cloneMobTpl(tpl); inst.visible = false; inst.userData.mobModel = true; inst.userData.isAlt = true; enemy.group.add(inst); if (tpl.userData && tpl.userData.hasSkin) enemy.mobBonesAlt = collectMobBones(inst, key); } });
         if (!MOB_GLB[key]) return; // no model -> keep procedural
         const cached = mobModelCache[key];
         if (cached && cached !== "loading" && cached !== "failed") { applyMobModel(enemy, cached); return; }
@@ -6707,11 +7140,11 @@
         mobModelCache[key] = "loading";
         ensureMobLoader().then((loader) => {
           if (!loader || loader === "failed") { mobModelCache[key] = "failed"; return; }
-          loader.load("./mobs/" + MOB_GLB[key], (gltf) => {
+          loadMobGLB(loader, MOB_GLB[key], (gltf) => {
             const tpl = prepMobTemplate(gltf.scene, key); mobModelCache[key] = tpl;
             for (const e of (mobModelWaiters[key] || [])) applyMobModel(e, tpl);
             mobModelWaiters[key] = [];
-          }, undefined, () => { mobModelCache[key] = "failed"; });
+          }, () => { mobModelCache[key] = "failed"; });
         }).catch(() => { mobModelCache[key] = "failed"; });
       }
       // generic file-keyed loader (for alt/popped variants); shares the orientation/scale/flip of its TYPE
@@ -6724,7 +7157,7 @@
         extraCache[file] = "loading";
         ensureMobLoader().then((loader) => {
           if (!loader || loader === "failed") { extraCache[file] = "failed"; return; }
-          loader.load("./mobs/" + file, (gltf) => { const tpl = prepMobTemplate(gltf.scene, type); extraCache[file] = tpl; for (const cb of (extraWaiters[file] || [])) cb(tpl); extraWaiters[file] = []; }, undefined, () => { extraCache[file] = "failed"; });
+          loadMobGLB(loader, file, (gltf) => { const tpl = prepMobTemplate(gltf.scene, type); extraCache[file] = tpl; for (const cb of (extraWaiters[file] || [])) cb(tpl); extraWaiters[file] = []; }, () => { extraCache[file] = "failed"; });
         }).catch(() => { extraCache[file] = "failed"; });
       }
       const mobCorpses = []; // short-lived models left behind by a state change (e.g. popped bursar)
@@ -6734,7 +7167,7 @@
           const holder = new THREE.Group();
           holder.position.set(pos.x, pos.y, (typeof surfaceZ === "function" ? surfaceZ(pos.x, pos.y) : 0.4) + 0.03);
           holder.rotation.z = rotZ || 0;
-          const inst = tpl.clone(true), mats = [];
+          const inst = cloneMobTpl(tpl), mats = [];
           inst.traverse((o) => { if (o.isMesh && o.material) { o.material = o.material.clone(); o.material.transparent = true; mats.push(o.material); } }); // clone mats -> independent fade
           holder.add(inst); if (groups.actors) groups.actors.add(holder);
           mobCorpses.push({ holder, mats, life: 0.85, max: 0.85 });
@@ -6774,7 +7207,7 @@
           name = "Seidr Revenant";
         } else if (type === "stalker") {
           hp *= 1.05; // survive long enough to actually flank/lunge (was 0.82 -> died instantly)
-          speed *= 1.9;
+          speed *= 2.47; // +30% (was 1.9): the demon-ghost cheetah gallop reads right at this pace
           radius = 0.4;
           contactDamage = 9.2;
           name = "Shadow Stalker";
@@ -6792,9 +7225,9 @@
           name = "Thorn Spitter";
         } else if (type === "hugger") {
           hp *= 1.35;
-          speed *= 1.08;
-          contactDamage = 1.5;
-          radius = 0.52;
+          speed *= 2.16; // 2x (user settled here 2026-06-09 after trying -25%): the slow-bomb RUNS you down
+          contactDamage = 0; // PURE SLOW (user direction 2026-06-09): zero damage so a hug can never break a streak — the 0.36 contact slow is the whole threat
+          radius = 0.78; // +50% body (user direction 2026-06-09) — latch/grab-gate distances scale with it
           name = "Root Hugger";
         } else if (type === "brute") {
           hp *= 2.65;
@@ -6863,7 +7296,7 @@
               : type === "slammer"
                 ? 1.35
                 : type === "hugger"
-                  ? 1.15
+                  ? 1.725
                   : type === "bursar"
                     ? 1.12
                     : type === "crawler"
@@ -9320,128 +9753,6 @@
         groups.props.add(mesh);
       }
 
-      function buildBirthdayStage() {
-        const y = (game.birthdayWave - 1) * STAGE_HEIGHT;
-        const group = new THREE.Group();
-        group.position.y = y;
-
-        const partyPlate = new THREE.Mesh(
-          new THREE.BoxGeometry(12.4, 9.6, 0.16),
-          new THREE.MeshStandardMaterial({ color: 0x4f3424, roughness: 0.88, flatShading: true }),
-        );
-        partyPlate.position.set(0, 0, 0.24);
-        group.add(partyPlate);
-
-        const textCanvas = document.createElement("canvas");
-        textCanvas.width = 1400;
-        textCanvas.height = 360;
-        const ctx = textCanvas.getContext("2d");
-        ctx.fillStyle = "rgba(0,0,0,0)";
-        ctx.fillRect(0, 0, textCanvas.width, textCanvas.height);
-        ctx.fillStyle = "#fff6e8";
-        ctx.strokeStyle = "#b3131b";
-        ctx.lineWidth = 18;
-        ctx.font = "900 104px Impact, Arial Black, sans-serif";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.strokeText("HAPPY BIRTHDAY", 700, 126);
-        ctx.fillText("HAPPY BIRTHDAY", 700, 126);
-        ctx.fillStyle = "#f8bf48";
-        ctx.strokeStyle = "#3e160b";
-        ctx.strokeText("SANTIAGO!", 700, 246);
-        ctx.fillText("SANTIAGO!", 700, 246);
-        const texture = new THREE.CanvasTexture(textCanvas);
-        texture.colorSpace = THREE.SRGBColorSpace;
-        const textMesh = new THREE.Mesh(
-          new THREE.PlaneGeometry(11.8, 3.05),
-          // Additive + fog-exempt so the HBD letters GLOW through the desaturated haze (were hidden).
-          new THREE.MeshBasicMaterial({ map: texture, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }),
-        );
-        textMesh.position.set(0, 2.8, 0.42);
-        group.add(textMesh);
-
-        const pool = new THREE.Mesh(
-          new THREE.CylinderGeometry(1.45, 1.45, 0.16, 18),
-          new THREE.MeshStandardMaterial({ color: 0x2aaed0, roughness: 0.4, metalness: 0.08 }),
-        );
-        pool.position.set(-3.8, -1.65, 0.38);
-        pool.rotation.x = Math.PI / 2;
-        group.add(pool);
-
-        const poolRim = new THREE.Mesh(
-          new THREE.TorusGeometry(1.5, 0.12, 10, 22),
-          new THREE.MeshStandardMaterial({ color: 0xe9f1d7, roughness: 0.62 }),
-        );
-        poolRim.position.copy(pool.position);
-        group.add(poolRim);
-
-        const present = new THREE.Group();
-        const box = new THREE.Mesh(new THREE.BoxGeometry(1.28, 1.08, 0.88), mats.presentRed);
-        const ribbonV = new THREE.Mesh(new THREE.BoxGeometry(0.24, 1.2, 0.95), mats.presentGold);
-        const ribbonH = new THREE.Mesh(new THREE.BoxGeometry(1.38, 0.22, 0.96), mats.presentGold);
-        const button = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.32, 0.32, 0.12, 16),
-          new THREE.MeshStandardMaterial({ color: 0x65d5ff, roughness: 0.26, metalness: 0.18 }),
-        );
-        button.position.set(0, 0.72, 0.26);
-        button.rotation.x = Math.PI / 2;
-        present.add(box, ribbonV, ribbonH, button);
-        present.position.set(3.55, -1.2, 0.82);
-        group.add(present);
-
-        const pedestal = new THREE.Mesh(new THREE.CylinderGeometry(0.92, 1.08, 0.2, 10), mats.stoneDark);
-        pedestal.position.set(3.55, -1.2, 0.34);
-        pedestal.rotation.x = Math.PI / 2;
-        group.add(pedestal);
-
-        for (let i = 0; i < 14; i += 1) {
-          const hue = i % 4 === 0 ? 0xf8bf48 : i % 4 === 1 ? 0xb3131b : i % 4 === 2 ? 0x65d5ff : 0xfff6e8;
-          const balloon = new THREE.Mesh(
-            new THREE.SphereGeometry(0.24, 10, 8),
-            new THREE.MeshStandardMaterial({ color: hue, roughness: 0.36, metalness: 0.04 }),
-          );
-          balloon.position.set(rand(-5.2, 5.2), rand(0.2, 5.3), 0.82);
-          balloon.scale.y = 1.22;
-          group.add(balloon);
-          const string = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, 0.72, 4), mats.bone);
-          string.position.set(balloon.position.x, balloon.position.y - 0.5, 0.62);
-          group.add(string);
-        }
-
-        for (let i = 0; i < 4; i += 1) {
-          const bottle = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.18, 0.7, 8), mats.gold);
-          bottle.position.set(-5.2 + i * 3.2, -4.3 + (i % 2) * 0.5, 0.52);
-          bottle.rotation.z = rand(-0.4, 0.4);
-          group.add(bottle);
-          const spray = new THREE.Mesh(
-            new THREE.ConeGeometry(0.18, 1.25, 8),
-            new THREE.MeshBasicMaterial({ color: 0xfff6e8, transparent: true, opacity: 0.5 }),
-          );
-          spray.position.set(bottle.position.x, bottle.position.y + 0.8, 0.72);
-          spray.rotation.z = bottle.rotation.z;
-          group.add(spray);
-        }
-
-        for (let i = 0; i < 16; i += 1) {
-          const cup = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.36, 7), mats.gold);
-          cup.position.set(rand(-5.4, 5.4), rand(-4.8, 4.8), 0.52);
-          cup.rotation.z = rand(-0.7, 0.7);
-          group.add(cup);
-        }
-
-        groups.props.add(group);
-        game.birthdayGroup = group;
-        game.birthdayPresent = { group: present, pos: new THREE.Vector2(3.55, y - 1.2) };
-      }
-
-      function rebuildBirthdayStage() {
-        if (game.birthdayGroup) {
-          groups.props.remove(game.birthdayGroup);
-          disposeObject(game.birthdayGroup);
-        }
-        buildBirthdayStage();
-      }
-
       function buildVictoryParty() {
         const group = new THREE.Group();
         group.position.y = VICTORY_HEAD_Y;
@@ -9608,12 +9919,12 @@
         ctx.font = "900 108px Impact, Arial Black, sans-serif";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        ctx.strokeText("HAPPY BIRTHDAY", 800, 132);
-        ctx.fillText("HAPPY BIRTHDAY", 800, 132);
+        ctx.strokeText("WRATH", 800, 132);
+        ctx.fillText("WRATH", 800, 132);
         ctx.fillStyle = "#f8bf48";
         ctx.strokeStyle = "#3e160b";
-        ctx.strokeText("SANTIAGO!", 800, 282);
-        ctx.fillText("SANTIAGO!", 800, 282);
+        ctx.strokeText("TRIUMPHANT!", 800, 282);
+        ctx.fillText("TRIUMPHANT!", 800, 282);
         const textMesh = new THREE.Mesh(
           new THREE.PlaneGeometry(11.6, 3.05),
           new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(textCanvas), transparent: true }),
@@ -9641,36 +9952,6 @@
         );
         floatie.position.set(-3.2, 0.55, 0.96);
         group.add(floatie);
-
-        const cake = new THREE.Group();
-        const cakeBase = new THREE.Mesh(new THREE.CylinderGeometry(0.72, 0.82, 0.42, 16), mats.bone);
-        cakeBase.rotation.x = Math.PI / 2;
-        const icing = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.66, 0.72, 0.18, 16),
-          new THREE.MeshStandardMaterial({ color: 0xffd6e7, roughness: 0.62 }),
-        );
-        icing.position.z = 0.18;
-        icing.rotation.x = Math.PI / 2;
-        cake.add(cakeBase, icing);
-        for (let i = 0; i < 5; i += 1) {
-          const candle = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.42, 6), mats.gold);
-          candle.position.set(-0.42 + i * 0.21, 0.05, 0.36);
-          cake.add(candle);
-          const flame = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.18, 7), mats.gold);
-          flame.position.set(candle.position.x, candle.position.y, 0.62);
-          cake.add(flame);
-        }
-        cake.position.set(1.1, 0.35, 0.86);
-        group.add(cake);
-
-        const present = new THREE.Group();
-        present.add(new THREE.Mesh(new THREE.BoxGeometry(1.35, 1.1, 0.82), mats.presentRed));
-        const ribbonA = new THREE.Mesh(new THREE.BoxGeometry(0.24, 1.22, 0.9), mats.presentGold);
-        const ribbonB = new THREE.Mesh(new THREE.BoxGeometry(1.45, 0.22, 0.92), mats.presentGold);
-        present.add(ribbonA, ribbonB);
-        present.position.set(3.55, 0.65, 0.92);
-        present.rotation.z = -0.08;
-        group.add(present);
 
         for (let i = 0; i < 6; i += 1) {
           const table = new THREE.Group();
@@ -10186,15 +10467,29 @@
         } else {
           ui.bossRow.classList.remove("visible");
         }
+        if (game.toastQueued && performance.now() / 1000 >= (game.toastPriorityUntil || 0)) {
+          const q = game.toastQueued; // a toast deferred by a priority window — show it now the banner is done
+          game.toastQueued = null;
+          showToast(q.text, q.duration);
+        }
         if (performance.now() / 1000 > game.toastUntil) {
           ui.toast.classList.remove("visible");
         }
       }
 
-      function showToast(text, duration = 2.2) {
+      function showToast(text, duration = 2.2, priority = false) {
+        // Priority toasts (boss UNLOCKED announcements) must survive same-frame info toasts:
+        // a boss kill empties the wave instantly, so clearWave's "Wave clear" used to overwrite
+        // the unlock message one frame (~11ms) after it appeared (seen in log-14).
+        // A toast arriving during the window is DEFERRED (depth-1, latest wins), never dropped —
+        // dropping consumed one-shot guards (lurkerTaught, breather debounce) and
+        // could permanently eat once-per-run messages.
+        const now = performance.now() / 1000;
+        if (!priority && now < (game.toastPriorityUntil || 0)) { game.toastQueued = { text, duration }; return; }
+        if (priority) { game.toastPriorityUntil = now + duration; game.toastQueued = null; }
         ui.toast.textContent = text;
         ui.toast.classList.add("visible");
-        game.toastUntil = performance.now() / 1000 + duration;
+        game.toastUntil = now + duration;
       }
 
       // Effect pulse: a colored EDGE rim on its OWN layer (fxPulse), never the center red wash — so
@@ -10207,7 +10502,8 @@
         const b = Math.round(c.b * 255);
         fxPulse.style.background = `radial-gradient(circle at 50% 50%, transparent 0 64%, rgba(${r},${g},${b},${Math.min(0.85, amount)}) 100%)`;
         fxPulse.classList.add("hot");
-        window.setTimeout(() => {
+        if (game.pulseTimer) window.clearTimeout(game.pulseTimer); // an older pulse's timer must not kill a newer flash (multi-hit frames rendered almost no feedback)
+        game.pulseTimer = window.setTimeout(() => {
           fxPulse.classList.remove("hot");
           fxPulse.style.background = "";
         }, 70);
@@ -10821,7 +11117,7 @@
         return zone;
       }
 
-      // ===================== MEGA-SUITE special helpers (streak/birthday reworks) =====================
+      // ===================== MEGA-SUITE special helpers (streak reworks) =====================
 
       // STRAFE: the y-row that currently holds the most mobs (so the comet lands on the crowd).
       function densestRowY() {
@@ -11451,7 +11747,6 @@
 
       function stageName(wave) {
         if (game.victoryReached) return "Crown of the head";
-        if (wave === game.birthdayWave) return "Happy Birthday Santiago!";
         // Climb reads as ascending the colossus: leg -> torso -> shoulder -> neck -> head.
         const s = waveSegment(wave);
         return s.labels[wave - s.waves[0]] || s.part;
@@ -11466,7 +11761,7 @@
           "Crown Colossus",
           "The Giant Hand",
           "Moss-Blood Minotaur",
-          "Birthday Hater",
+          "Hollow King",
           "Colossus Heart",
           "Night Head",
         ];
