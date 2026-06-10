@@ -61,6 +61,7 @@
         [
           ["bursar.glb", "bursar", "bursar"], ["spitter.glb", "spitter", null], ["shield.glb", "Bulwark", null], ["boss-tyrant.glb", "Grave Tyrant", null],
           ["boss-warden.glb", "Rune Warden", "warden"], ["boss-alpha.glb", "Pack Alpha", null], ["boss-conduit.glb", "Hex Conduit", null], ["boss-colossus.glb", "Crown Colossus", null],
+          ["santiago.glb", "Santiago", null, "./"], // the PLAYER (lives at game/, not mobs/; entry[3] = dir override — kid GLBs slot in the same way when they exist)
         ],
       ];
       // emissive color-key glow (replicated from the game's MOB_GLOW)
@@ -249,10 +250,10 @@
       ROWS.forEach((row, ri) => {
         const y = ri === 0 ? 0 : ROW_Y; // bottom row on the floor, top row stacked above
         const startX = -((row.length - 1) / 2) * SPACING;
-        row.forEach(([file, lbl, glowKey], ci) => {
+        row.forEach(([file, lbl, glowKey, dir], ci) => {
           const x = startX + ci * SPACING;
           label(lbl, x, y);
-          loader.load("./mobs/" + file, (gltf) => {
+          loader.load((dir || "./mobs/") + file, (gltf) => {
             const root = gltf.scene;
             if (SCALE[file]) { const s3 = SCALE[file]; root.scale.set(root.scale.x * s3[0], root.scale.y * s3[1], root.scale.z * s3[2]); } // thicken thin axes before fit/center
             const box = new THREE.Box3().setFromObject(root), size = new THREE.Vector3(), center = new THREE.Vector3();
@@ -262,7 +263,7 @@
             applyFXFor(file, glowKey, root);
             const inner = new THREE.Group(); inner.add(root); inner.scale.setScalar(s);
             const pivot = new THREE.Group(); pivot.add(inner); pivot.position.set(x, y, 0); pivot.rotation.y = FLIP[file] ? Math.PI : 0;
-            pivot.userData.pivot = true; pivot.userData.file = file; pivot.userData.lbl = lbl; pivot.userData.glowKey = glowKey; // click -> single view
+            pivot.userData.pivot = true; pivot.userData.file = file; pivot.userData.lbl = lbl; pivot.userData.glowKey = glowKey; pivot.userData.dir = dir; // click -> single view
             scene.add(pivot); pivots.push(pivot);
             done += 1; document.getElementById("info").textContent = `${done}/${total} loaded · each cell fits ${TARGET_H}u · click a model to inspect`;
             window.__viewerReady = done === total;
@@ -271,7 +272,8 @@
       });
 
       function frame() {
-        const halfW = 3.5 * SPACING + 2.9;                    // row half-width + model margin + SVG ruler gutter (left)
+        const maxCols = Math.max(...ROWS.map((r) => r.length));
+        const halfW = ((maxCols - 1) / 2) * SPACING + 2.9;    // row half-width + model margin + SVG ruler gutter (left)
         const lowY = -0.3, highY = ROW_Y + TARGET_H + 0.3;    // vertical span (both rows)
         const midY = (lowY + highY) / 2, halfH = (highY - lowY) / 2;
         const vFov = (camera.fov * Math.PI) / 180;
@@ -325,11 +327,11 @@
         grabTune: { reach: 0.5, converge: -0.2, roll: -1.2 }, // grab targets (user-tuned hugger pose, 2026-06-09): reach = fwd fraction of arm length, converge = inward pull, roll = palm about the arm's own axis
       };
       // Per-file leg-drive tune (mirrors the game's MOB_SWAY legAmp/legRate)
-      const VIEW_LEGS = { "crawler.glb": { legAmp: 1.5, legRate: 1 }, "boss-tyrant.glb": { legAmp: 1.3, legRate: 0.55 }, "stalker.glb": { legAmp: 1.2, legRate: 1.0, gallop: true }, "spitter.glb": { legAmp: 0.85, legRate: 1.5 }, "boss-alpha.glb": { legAmp: 1.45, legRate: 1.15 } };
+      const VIEW_LEGS = { "crawler.glb": { legAmp: 1.5, legRate: 1 }, "boss-tyrant.glb": { legAmp: 1.3, legRate: 0.55 }, "stalker.glb": { legAmp: 1.2, legRate: 1.0, gallop: true }, "spitter.glb": { legAmp: 1.05, legRate: 0.7 }, "boss-alpha.glb": { legAmp: 1.3, legRate: 0.78 } };
       const legTune = () => VIEW_LEGS[view.file] || { legAmp: 1, legRate: 1 };
       const VIEW_BIPED = { "ash_dead.glb": 1.25, "ranged.glb": 1.1, "bursar.glb": 1.15, "bursar-popped.glb": 1.15, "shield.glb": 1.0, "shield-broken.glb": 1.0, "brute.glb": 1.3, "boss-warden.glb": 1.25, "boss-colossus.glb": 1.5 }; // biped legAmp per file (mirrors MOB_SWAY legAmp; default 1 like the game)
       const bipedAmp = () => VIEW_BIPED[view.file] || 1;
-      const VIEW_BIPED_RATE = { "bursar.glb": 0.62, "bursar-popped.glb": 0.62, "shield.glb": 0.8, "brute.glb": 0.55, "boss-warden.glb": 0.5, "boss-colossus.glb": 0.9 }; // biped cadence per file (mirrors MOB_SWAY legRate)
+      const VIEW_BIPED_RATE = { "bursar.glb": 0.53, "bursar-popped.glb": 0.53, "shield.glb": 0.8, "brute.glb": 0.55, "boss-warden.glb": 0.5, "boss-colossus.glb": 0.9 }; // biped cadence per file (mirrors MOB_SWAY legRate)
       const bipedRate = () => VIEW_BIPED_RATE[view.file] || 1;
       const VIEW_FLOAT = { "wisp.glb": true, "boss-conduit.glb": true }; // floaters: hover + glide bank (mirrors MOB_SWAY float)
       // Per-file FK pose defaults (the user's exported poses) — preloaded into view.pose so a reload
@@ -353,7 +355,7 @@
       // real bones after a re-rig with autorig.py --joints). The tree can BRANCH freely.
       const JOINT_COLORS = { idle: 0x65d5ff, sel: 0xf8bf48, edit: 0xff8a5a };
 
-      function enterView(file, lbl, glowKey) {
+      function enterView(file, lbl, glowKey, dir) {
         view.on = true; view.file = file; view.lbl = lbl; view.selected = null; view.editJoints = false; view.pose = {};
         view.scene = new THREE.Scene();
         view.scene.background = new THREE.Color(0x16191d);
@@ -370,9 +372,9 @@
         backBtn.style.display = "block"; panel.style.display = "block";
         document.getElementById("hint").textContent = "orbit: drag · zoom: wheel · click a joint sphere to select";
         panel.innerHTML = `<h1>${lbl}</h1><div class="dim">loading ${file}…</div>`;
-        // rigged first (joints!), fallback to the static original
+        // rigged first (joints!), fallback to the static original (dir override for non-mobs/ files, e.g. the player)
         loader.load("./mobs/rigged/" + file, (g) => buildView(g, file, glowKey, true), undefined,
-          () => loader.load("./mobs/" + file, (g) => buildView(g, file, glowKey, false), undefined,
+          () => loader.load((dir || "./mobs/") + file, (g) => buildView(g, file, glowKey, false), undefined,
             () => { panel.innerHTML = `<h1>${lbl}</h1><div class="dim">failed to load ${file}</div>`; }));
       }
       function buildView(gltf, file, glowKey, rigged) {
@@ -806,6 +808,18 @@
           view.model.position.set(0, 0.06 * v * LT.legAmp * spd * onM, Math.max(-0.14, Math.min(0.14, view.__lurch)));
           grabPose(byName.spine, 0, 0.09 * Math.sin(gph - 0.4) * spd * onM);
           grabPose(byName.chest, 0, 0.12 * Math.sin(gph - 0.7) * spd * onM);
+        } else if (view.hasBiped && view.model) { // STEP-in-place preview (mirrors the game): surge from the SAME legL/legR stance math the knees use —
+          // forward push while a planted (knee-straight) leg sweeps back, dip through double-support, weight onto the loaded side
+          const onM = view.anim.sway ? 1 : 0, spd = 0.15 + 0.85 * mv, BA = bipedAmp();
+          let push = 0, side = 0;
+          for (const bs of [1, -1]) {
+            const blp = ph * 1.7 * bipedRate() + (bs > 0 ? 0 : Math.PI);
+            const st = Math.max(0, -Math.cos(blp - 0.5)); // stance window (inverse of the knee fold's gate)
+            push += st * st; side += st * st * bs;
+          }
+          const v = push / 2 - 0.25; // zero-mean propulsion, two footfalls per stride cycle
+          view.__lurch = ((view.__lurch || 0) + v * 0.0166 * view.anim.speed * 2.0 * BA * spd * onM) * Math.exp(-0.0166 * 4.0);
+          view.model.position.set(0.03 * (side / 2) * BA * spd * onM, 0.05 * v * BA * spd * onM, Math.max(-0.12, Math.min(0.12, view.__lurch)));
         }
         if (VIEW_FLOAT[view.file] && view.model) { // FLOATERS (mirrors the game): two-sine hover + glide pitch + lazy yaw drift
           const onF = view.anim.sway ? 1 : 0;
@@ -1023,7 +1037,7 @@
           const moved = Math.hypot(e.clientX - downXY[0], e.clientY - downXY[1]);
           const quick = performance.now() - downAt < 350;
           const p = dragging; dragging = null; cv.classList.remove("grabbing");
-          if (moved < 5 && quick && p.userData.file) enterView(p.userData.file, p.userData.lbl, p.userData.glowKey); // a CLICK, not a drag
+          if (moved < 5 && quick && p.userData.file) enterView(p.userData.file, p.userData.lbl, p.userData.glowKey, p.userData.dir); // a CLICK, not a drag
         }
         if (dragSphere) { dragSphere = null; if (view.controls) view.controls.enabled = true; }
       });
@@ -1055,7 +1069,7 @@
       window.__view = (px, py, pz, lx, ly, lz) => { camera.position.set(px, py, pz); camera.lookAt(lx, ly, lz); };
       // deep link: ?m=<file.glb> opens single view directly
       const deepM = new URLSearchParams(location.search).get("m");
-      if (deepM) { const all = ROWS.flat(); const hit = all.find((r) => r[0] === deepM || r[1] === deepM); if (hit) setTimeout(() => enterView(hit[0], hit[1], hit[2]), 400); }
+      if (deepM) { const all = ROWS.flat(); const hit = all.find((r) => r[0] === deepM || r[1] === deepM); if (hit) setTimeout(() => enterView(hit[0], hit[1], hit[2], hit[3]), 400); }
     </script>
   </body>
 </html>

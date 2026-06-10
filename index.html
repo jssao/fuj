@@ -6473,10 +6473,10 @@
       const MOB_SWAY = { // bone-drive amplitudes (rad): sway = side roll, pitch = idle nod, lean = into movement, flinch = on-hit recoil (reads enemy.flash)
         default: { sway: 0.085, pitch: 0.055, lean: 0.20, flinch: 0.30 },
         basic: { sway: 0.13, pitch: 0.07, lean: 0.30, flinch: 0.34, legAmp: 1.25 }, // ash-dead ZOMBIE: heavy lurch over the biped legL/legR shuffle (legAmp scales stride + weight-shift; +25% user tune 2026-06-09), arms held forward (MOB_STRIKE.basic.base)
-        wisp: { sway: 0.16, pitch: 0.04, lean: 0.10, flinch: 0.22, float: true }, // FLOATER: flame tip whips, body hovers on the float drive, dangle-* legs trail on the wave
-        bursar: { sway: 0.09, pitch: 0.06, lean: 0.14, flinch: 0.32, legAmp: 1.15, legRate: 0.62 }, // DOPEY bomber: slow biped waddle, bulb dome jiggles, stubby wrist arms float
-        spitter: { sway: 0.04, pitch: 0.03, lean: 0.12, flinch: 0.26, legAmp: 0.85, legRate: 1.5 }, // stubby quadruped: quick little leg-* steps, body stays level
-        shield: { sway: 0.04, pitch: 0.035, lean: 0.10, flinch: 0.18, legAmp: 1.0, legRate: 0.8 }, // Bulwark: steady braced march behind the shield bone
+        wisp: { sway: 0.30, pitch: 0.07, lean: 0.10, flinch: 0.22, float: true }, // FLOATER, candle-flame read (user: more exaggerated): tip whips hard, body hovers, dangle-* legs trail
+        bursar: { sway: 0.10, pitch: 0.06, lean: 0.14, flinch: 0.32, legAmp: 1.2, legRate: 0.53 }, // DOPEY bomber +15% (user tune): slower waddle, bigger roll, bulb dome jiggles, flipper arms float
+        spitter: { sway: 0.03, pitch: 0.025, lean: 0.10, flinch: 0.26, legAmp: 1.05, legRate: 0.7 }, // TURTLE (user direction): slow deliberate sprawled steps, shell stays level — was a fast pulse over mis-weighted legs
+        shield: { sway: 0.04, pitch: 0.035, lean: 0.10, flinch: 0.18, legAmp: 1.0, legRate: 0.8, armFloat: 0.15 }, // Bulwark: braced march; grip arm damped to 15% so the hand-L SLAB stays planted (audit)
         lurker: { sway: 0.10, pitch: 0.04, lean: 0.06, flinch: 0.26, drape: true, fabAmp: 2.4 }, // HEAD-LED wraith: diamond pitches into the glide, the fab* cloak chains hang + float like gravity (drape blocks below; exaggeration pass 2026-06-09: fabAmp 1.9->2.4, head 0.38->0.48, trail +25%)
         hugger: { sway: 0.12, pitch: 0.05, lean: 0.22, flinch: 0.30 }, // exaggerated floaty arms ARE its locomotion read (mobs are never idle in play)
         stalker: { sway: 0.05, pitch: 0.04, lean: 0.20, flinch: 0.28, gallop: true, legRate: 1.0, legAmp: 1.2 }, // demon-ghost cheetah: claw-over-claw gallop + serpentine tail-* trail + bound lurch
@@ -6485,7 +6485,7 @@
         brute: { sway: 0.055, pitch: 0.045, lean: 0.26, flinch: 0.20, legAmp: 1.3, legRate: 0.55 }, // LUMBERING gorilla: slow heavy biped stride, huge wrist/hand knuckle arms ride the float
         "boss:tyrant": { sway: 0.045, pitch: 0.035, lean: 0.14, flinch: 0.14, legAmp: 1.3, legRate: 0.55 }, // 6-legged king: big SLOW deliberate strides (legRate scales the step clock)
         "boss:warden": { sway: 0.045, pitch: 0.035, lean: 0.14, flinch: 0.14, legAmp: 1.25, legRate: 0.5 }, // HEAVYWEIGHT: ponderous wide-stance biped, big arm swings
-        "boss:alpha": { sway: 0.05, pitch: 0.04, lean: 0.22, flinch: 0.16, legAmp: 1.45, legRate: 1.15, headTrack: true }, // big muscular DOG: fast quadruped trot, head locked on the prey while it circles
+        "boss:alpha": { sway: 0.03, pitch: 0.03, lean: 0.22, flinch: 0.16, legAmp: 1.3, legRate: 0.78, headTrack: true }, // buff PITBULL (user: was jiggly): slower planted power-walk, stiff level body, head locked on the prey
         "boss:conduit": { sway: 0.05, pitch: 0.035, lean: 0.12, flinch: 0.14, float: true }, // FLOATER wraith: hovers + banks, cape-* chains ripple
         "boss:colossus": { sway: 0.04, pitch: 0.03, lean: 0.18, flinch: 0.12, legAmp: 1.5, legRate: 0.9 }, // FREAK ATHLETE: giant strides at near-runner cadence — huge AND fast
       };
@@ -6826,20 +6826,21 @@
         basic: { dist: 1.7, env: mobBiteEnv, base: 0.55 }, // zombie: walks arms-forward at the base floor, lunges for the bite in range
         ranged: { dist: 6.0, env: () => 0.85, base: 0.45 }, // revenant: casting armL LEVELS at the player across the 5.7 shooter standoff (constant aim, no cycle); the windup/fire snap is the overlay in updateMobModels (proximity clocks can't sync to the discrete fire)
       };
-      function driveMobBones(b, cfg, swy, lg, mvS, flinch, ph, amp, grab, gp, scr) {
+      function driveMobBones(b, cfg, swy, lg, mvS, flinch, ph, amp, grab, gp, scr, sPh) {
         if (!b) return;
         const g = grab || 0, gC = Math.min(1, g), slam = Math.max(0, g - 1), gOn = Math.abs(g) > 0.002; // g overshoots 1 on the snap; g < 0 = the OPEN flare (grab played in reverse)
         const sc = scr || 0;
+        const sp = sPh !== undefined ? sPh : (ph || 0) * 2.5; // DISTANCE-locked stride phase (rad/unit-travelled; audit marriage fix): footfalls track real field speed incl. slows/roots — feet cannot slide. Fallback approximates the old wall-clock.
         setMobBone(b.spine, cfg.pitch * swy + cfg.lean * mvS + cfg.flinch * flinch, 0, cfg.sway * swy);
         setMobBone(b.chest, cfg.pitch * 0.8 * lg + cfg.lean * 0.35 * mvS, 0, cfg.sway * 0.8 * lg);
         setMobBone(b.head, -cfg.pitch * lg - cfg.flinch * 0.8 * flinch, 0, -cfg.sway * 0.5 * lg);
         if (b.hasLegs) { // crab WEIGHT-SHIFT: sharpened flat-top roll synced to the step clock — body PLANTS on a side then snaps across (de-floats the smooth sway)
-          const crab = Math.tanh(2.4 * Math.sin((ph || 0) * 2.5)) * (0.2 + 0.8 * mvS) * (cfg.legAmp || 1);
+          const crab = Math.tanh(2.4 * Math.sin(sp * 0.5 * (cfg.legRate || 1))) * (0.2 + 0.8 * mvS) * (cfg.legAmp || 1); // exactly half the leg clock = 2:1 plant lock (audit #5)
           grabPoseMob(b.spine, -0.035 * crab, 0, 0.065 * crab);
           grabPoseMob(b.chest, 0, 0, 0.05 * crab);
         }
         if (b.hasBiped) { // zombie WEIGHT-SHIFT: torso rolls onto the planted side each stride (same clock as the legL/legR gait, legRate scales the cadence)
-          const zsh = Math.sin((ph || 0) * 1.7 * (cfg.legRate || 1) - 0.6) * (0.15 + 0.85 * mvS) * (cfg.legAmp || 1);
+          const zsh = Math.sin(sp * 0.34 * (cfg.legRate || 1) - 0.6) * (0.15 + 0.85 * mvS) * (cfg.legAmp || 1); // same clock as the biped stride
           grabPoseMob(b.spine, 0, 0, 0.07 * zsh); grabPoseMob(b.chest, 0, 0, 0.05 * zsh); grabPoseMob(b.head, 0, 0, -0.05 * zsh); // head counter-rolls = loose neck
         }
         if (cfg.drape) { // HEAD-LED wraith (lurker): the diamond pitches INTO the glide, the cloak hangs off it and TRAILS like cloth in air
@@ -6864,7 +6865,7 @@
             if (o.userData && o.userData.legDepth !== undefined) { // SPIDER GAIT (leg-* chains): alternating diagonal sets — swing about model-vertical, lift about model-forward
               const ls = o.userData.legSide || 1, li = o.userData.legIdx || 1;
               const scrF = li === 1 ? sc : 0; // front pair trades the gait for the SCRATCH FLURRY near the player
-              const lp = p0 * 5.0 * (cfg.legRate || 1) + ((li + (ls > 0 ? 0 : 1)) % 2) * Math.PI + li * 0.45; // diagonal pairs out of phase + per-leg stagger (legRate: heavy types step slower)
+              const lp = sp * (cfg.legRate || 1) + ((li + (ls > 0 ? 0 : 1)) % 2) * Math.PI + li * 0.45; // distance-locked diagonal pairs + per-leg stagger (legRate: heavy types take longer strides)
               const stepM = (0.12 + 0.88 * mvS) * (cfg.legAmp || 1) * (1 - scrF); // near-still when parked -> EXAGGERATED scuttle at field speed (legAmp per type)
               const sw = Math.sin(lp) * 0.38 * stepM, lift = Math.max(0, Math.cos(lp)); // lift on the return stroke
               const lf = lift * lift * 0.34 * stepM;
@@ -6882,7 +6883,7 @@
             }
             if (o.userData && o.userData.bipedDepth !== undefined) { // BIPED ZOMBIE GAIT (legL/legR chains): stiff alternating strides about model-right; knee folds through the swing = shuffle
               const bs = o.userData.bipedSide || 1;
-              const blp = p0 * 1.7 * (cfg.legRate || 1) + (bs > 0 ? 0 : Math.PI); // lurching cadence x legRate (heavies stride slower, dopes waddle), legs in anti-phase (same clock as the weight-shift)
+              const blp = sp * 0.34 * (cfg.legRate || 1) + (bs > 0 ? 0 : Math.PI); // distance-locked lurching cadence x legRate, legs in anti-phase (same clock as the weight-shift)
               const bstep = (0.15 + 0.85 * mvS) * (cfg.legAmp || 1);
               setMobBone(o, 0, 0, 0); // gait replaces the generic wave
               if (o.userData.bipedDepth === 0) grabPoseMob(o, 0, Math.sin(blp) * 0.32 * bstep); // thigh stride (model-right pitch: + = forward)
@@ -6902,7 +6903,7 @@
             }
             if (cfg.gallop && o.userData && o.userData.armDepth !== undefined) { // CHEETAH GALLOP (cfg.gallop, e.g. stalker): claw-over-claw strokes ARE the locomotion — fast rake down-back, slower reach recovery
               const gd = o.userData.armDepth, gside = o.userData.gSide || 1;
-              const gph = p0 * 4.2 * (cfg.legRate || 1) + (gside > 0 ? 0 : 0.4) - gd * 0.55; // arms near-synchronous (rotary gallop), claw lags the shoulder
+              const gph = sp * 0.84 * (cfg.legRate || 1) + (gside > 0 ? 0 : 0.4) - gd * 0.55; // distance-locked rotary gallop, claw lags the shoulder
               const gW = Math.max(0, 1 - Math.abs(g)); // the ENVELOP grab takes the arms over from the gallop
               const gAmp = (0.1 + 0.9 * mvS) * (cfg.legAmp || 1) * gW;
               const stroke = Math.sin(gph) - 0.35 * Math.sin(2 * gph); // skewed: the rake is the fast half
@@ -6920,10 +6921,12 @@
               if (gp && gOn) applyPoseOffset(o, gp[o.name], g);
               continue;
             }
+            if (/^shield/.test(o.name)) { setMobBone(o, cfg.flinch * 0.3 * flinch, 0, 0); if (gp && gOn) applyPoseOffset(o, gp[o.name], g); continue; } // shield brace bones hold RIGID (audit: the slab must not noodle) — flinch shudder only
             const arm = o.userData && o.userData.armDepth !== undefined, wave = arm ? Math.max(0, Math.min(1, 1 - g)) : 1; // arms trade the idle wave for the grab (clamped: the negative flare must not AMPLIFY it)
-            let rx = a * Math.sin(p0 - d * 0.7) * wave, rz = a * 0.6 * Math.sin(p0 - d * 0.7 - 0.4) * wave;
+            const aDamp = arm && cfg.armFloat !== undefined ? cfg.armFloat : 1; // per-type arm-float damping (Bulwark grips, doesn't swing)
+            let rx = a * Math.sin(p0 - d * 0.7) * wave * aDamp, rz = a * 0.6 * Math.sin(p0 - d * 0.7 - 0.4) * wave * aDamp;
             if (arm) { // FLOATY arms: slower, larger secondary drift — this IS the locomotion read (mobs are never idle in play), so it grows with movement
-              const fa = cfg.sway * 2.0 * (1 + 0.3 * (o.userData.armDepth || 0)) * (0.7 + 0.5 * mvS) * wave;
+              const fa = cfg.sway * 2.0 * (1 + 0.3 * (o.userData.armDepth || 0)) * (0.7 + 0.5 * mvS) * wave * aDamp;
               rx += fa * Math.sin(p0 * 0.45 - d * 0.6);
               rz += fa * 0.8 * Math.sin(p0 * 0.45 - d * 0.6 - 0.7);
             }
@@ -7018,11 +7021,13 @@
               e.__pwu = wu;
               if ((e.__castK || 0) > 0.01) { gFin = Math.max(gFin, 1.0 + 0.5 * e.__castK); e.__castK *= Math.exp(-dt * 7); } // recoil spike 1.5 -> settle
             }
-            driveMobBones(e.mobBones, cfgS, swy, lg, e.__mvS, fl, ph, amp, gFin, gPose, e.__scrS);
-            if (e.mobBonesAlt) driveMobBones(e.mobBonesAlt, cfgS, swy, lg, e.__mvS, fl, ph, amp, gFin, gPose, e.__scrS);
-            // LUNGE body language (boss dash): rear BACK through the telegraph, then hard forward lean for the
-            // committed charge — the fat-king lunge read. Eases into the windup, SNAPS into the lunge.
-            const lgT = (e.chargeTel || 0) > 0 ? -1 : (e.charge || 0) > 0 ? 1 : 0;
+            e.__sPh = (e.__sPh || (e.id || 0) * 1.3) + mv * dt * 5.0; // DISTANCE-locked stride phase (rad per unit travelled): footfalls track real speed incl. slows/roots
+            driveMobBones(e.mobBones, cfgS, swy, lg, e.__mvS, fl, ph, amp, gFin, gPose, e.__scrS, e.__sPh);
+            if (e.mobBonesAlt) driveMobBones(e.mobBonesAlt, cfgS, swy, lg, e.__mvS, fl, ph, amp, gFin, gPose, e.__scrS, e.__sPh);
+            // LUNGE body language (boss dash + small-mob POUNCE): rear BACK through the telegraph, then hard
+            // forward lean for the commit. Eases into the windup, SNAPS into the lunge. (audit: stalker's
+            // pounce uses lunge/lungeTel, not the boss charge fields — both gate now.)
+            const lgT = ((e.chargeTel || 0) > 0 || (e.lungeTel || 0) > 0) ? -1 : ((e.charge || 0) > 0 || (e.lunge || 0) > 0) ? 1 : 0;
             e.__lgS = (e.__lgS || 0) + (lgT - (e.__lgS || 0)) * Math.min(1, dt * (lgT === 1 ? 14 : 5));
             if (e.mobBones && Math.abs(e.__lgS) > 0.01) {
               grabPoseMob(e.mobBones.spine, 0, 0.20 * e.__lgS);
@@ -7055,7 +7060,7 @@
                 const o = exs[k];
                 if (!o.userData || o.userData.legDepth !== 0) continue; // leg roots only
                 const ls = o.userData.legSide || 1, li = o.userData.legIdx || 1;
-                const lp = ph * 5.0 * (cfgS.legRate || 1) + ((li + (ls > 0 ? 0 : 1)) % 2) * Math.PI + li * 0.45; // EXACT bone-drive phase (incl. legRate)
+                const lp = (e.__sPh || 0) * (cfgS.legRate || 1) + ((li + (ls > 0 ? 0 : 1)) % 2) * Math.PI + li * 0.45; // EXACT bone-drive phase (distance-locked, incl. legRate)
                 const active = li === 1 ? 1 - (e.__scrS || 0) : 1; // front legs stop pushing while they scratch
                 const planted = Math.max(0, -Math.cos(lp)); // inverse of the gait's lift = stance phase
                 push += planted * planted * active;
@@ -7077,7 +7082,7 @@
               }
             } else if (e.mobBones && cfgS.gallop) { // BOUND lurch (gallop types): body surges with each claw stroke — cheetah bound, same clock as the arm rake
               const la2 = cfgS.legAmp || 1, spd2 = 0.1 + 0.9 * e.__mvS;
-              const gph = ph * 4.2 * (cfgS.legRate || 1) - 0.5; // body lags the rake slightly
+              const gph = (e.__sPh || 0) * 0.84 * (cfgS.legRate || 1) - 0.5; // body lags the rake slightly (distance-locked, matches the arm clock)
               const power = Math.max(0, Math.sin(gph));
               const v2 = power * power - 0.25;
               e.__lurch = ((e.__lurch || 0) + v2 * dt * 2.4 * la2 * spd2) * Math.exp(-dt * 4.5);
@@ -7089,6 +7094,29 @@
                 c.position.z += bob2;
               }
               if (e.mobBones.spine) { grabPoseMob(e.mobBones.spine, 0, 0.09 * Math.sin(gph - 0.4) * spd2); grabPoseMob(e.mobBones.chest, 0, 0.12 * Math.sin(gph - 0.7) * spd2); } // spine flexes with the bound
+            } else if (e.mobBones && e.mobBones.hasBiped) { // STEP lurch (biped legL/legR): same recipe as the scuttle/bound —
+              // propulsion derived from the EXACT stance math the knees use (the shin is straight when cos(blp-0.5)<=0
+              // = the foot is planted), integrated with a leak: the body surges forward as each planted leg sweeps back,
+              // dips through double-support, and rides onto the loaded side. De-glides the field slide into actual
+              // footfalls, two per stride cycle. Combat position/hitbox untouched.
+              const la3 = cfgS.legAmp || 1, spd3 = 0.15 + 0.85 * e.__mvS; // same floor as the gait's bstep (mobs never fully idle)
+              let push3 = 0, side3 = 0;
+              for (const bs of [1, -1]) {
+                const blp = ph * 1.7 * (cfgS.legRate || 1) + (bs > 0 ? 0 : Math.PI); // EXACT biped bone-drive phase (anti-phase legs, legRate cadence)
+                const st = Math.max(0, -Math.cos(blp - 0.5)); // stance window (inverse of the knee fold's gate)
+                push3 += st * st; side3 += st * st * bs;
+              }
+              const v3 = push3 / 2 - 0.25; // mean of stance^2 over the cycle = 1/4 -> zero-mean propulsion
+              e.__lurch = ((e.__lurch || 0) + v3 * dt * 2.0 * la3 * spd3) * Math.exp(-dt * 4.0); // integrate + leak back to center
+              const surge3 = Math.max(-0.12, Math.min(0.12, e.__lurch));
+              const shimmy3 = 0.03 * (side3 / 2) * la3 * spd3; // weight onto the planted foot (same phase as the torso roll, -0.5 vs -0.6 lag)
+              const bob3 = 0.05 * v3 * la3 * spd3; // rises over the straight stance leg, settles into the plant
+              for (const c of e.group.children) {
+                if (!c.userData || !c.userData.mobModel || !c.visible || !c.userData.animB) continue;
+                c.position.y = (c.userData.animB.y || 0) + surge3;
+                c.position.x = (c.userData.animB.x || 0) + shimmy3;
+                c.position.z += bob3; // on top of the breathe bob set above
+              }
             }
           }
         }
@@ -9544,16 +9572,19 @@
         wrap.userData.playerModel = true;
         for (const c of player.group.children) c.visible = false; // hide the procedural Santiago rig
         player.group.add(wrap);
+        try { player.glbBones = collectMobBones(wrap, "player"); } catch (e) { player.glbBones = null; } // rigged GLB -> the player bone drive (updatePlayerBones); axes/biped/arm tagging reused from the mob machinery
       }
       async function initPlayerGLB() {
         try {
           const { GLTFLoader } = await import("three/addons/loaders/GLTFLoader.js");
           const loader = new GLTFLoader();
+          const apply = (gltf) => { try { applyPlayerGLB(gltf.scene); } catch (e) { console.warn("[SantiagoWrath] santiago.glb apply failed; keeping procedural", e); } };
           loader.load(
-            PLAYER_GLB.url,
-            (gltf) => { try { applyPlayerGLB(gltf.scene); } catch (e) { console.warn("[SantiagoWrath] santiago.glb apply failed; keeping procedural", e); } },
+            "./mobs/rigged/santiago.glb", // RIGGED player first (full skeleton -> updatePlayerBones drive)
+            apply,
             undefined,
-            (err) => { console.warn("[SantiagoWrath] santiago.glb load failed; keeping procedural", err); },
+            () => loader.load(PLAYER_GLB.url, apply, undefined,
+              (err) => { console.warn("[SantiagoWrath] santiago.glb load failed; keeping procedural", err); }),
           );
         } catch (e) {
           console.warn("[SantiagoWrath] GLTFLoader unavailable; keeping procedural Santiago", e);
@@ -10023,6 +10054,7 @@
         );
         player.group.rotation.z = facingToRotation(player.facing);
         updateSantiagoRig();
+        updatePlayerBones();
       }
 
       function updateSantiagoRig() {
@@ -10050,6 +10082,65 @@
           leg.root.rotation.z = side * 0.34 - climb * 0.22;
           leg.knee.rotation.z = side * -0.2 + Math.max(0, -climb) * side * 0.34;
           leg.root.position.y = -0.72 + (moving ? Math.max(0, -climb) * 0.12 : 0);
+        }
+      }
+
+      // ===== RIGGED PLAYER bone drive: distance-locked stride married to DIRECTIONAL motion (back-pedal
+      // and strafe step correctly via the body-frame move vector), the axe swing (same attackSwingCurve
+      // window the procedural rig uses), the charge WINDUP coil, and the charged-release LUNGE.
+      // Reads game/player state only; writes the GLB skeleton (player.glbBones). Axe rides hand-R (weights).
+      let _pbT = 0, _pbPh = 0, _pbPX = 0, _pbPY = 0, _pbMv = 0, _pbChargePrev = 0, _pbLungeAt = -9;
+      function updatePlayerBones() {
+        const b = player.glbBones; if (!b || !b.extras) return;
+        const now = performance.now() / 1000;
+        const dt = Math.min(0.05, Math.max(0.001, now - (_pbT || now))); _pbT = now;
+        // distance-locked stride: phase advances with ground covered -> feet cannot slide
+        const dx = player.pos.x - _pbPX, dy = player.pos.y - _pbPY; _pbPX = player.pos.x; _pbPY = player.pos.y;
+        const dist = Math.hypot(dx, dy), spd = dist / dt;
+        _pbPh += dist * 5.2;
+        _pbMv += (Math.min(1, spd / 5.5) - _pbMv) * Math.min(1, dt * 10);
+        const mv = _pbMv;
+        // movement direction in BODY space (facing frame): lf = forward component, lr = strafe component
+        const a = player.group.rotation.z;
+        let lf = 0, lr = 0;
+        if (dist > 1e-5) { const mx = dx / dist, my = dy / dist; lf = mx * -Math.sin(a) + my * Math.cos(a); lr = mx * Math.cos(a) + my * Math.sin(a); }
+        const attacking = now < game.attackAnimUntil;
+        const sw = attacking ? attackSwingCurve(THREE.MathUtils.clamp(1 - (game.attackAnimUntil - now) / 0.32, 0, 1)) : 0;
+        const cr = game.charging ? (game.chargeRatio || 0) : 0;
+        if (!game.charging && _pbChargePrev >= 0.5) _pbLungeAt = now; // charged release -> the committed forward lunge
+        _pbChargePrev = game.charging ? (game.chargeRatio || 0) : 0;
+        const lungeT = now - _pbLungeAt, lunge = lungeT >= 0 && lungeT < 0.38 ? Math.pow(1 - lungeT / 0.38, 1.6) : 0;
+        const dash = game.phaseDash > 0 ? 1 : 0;
+        // core: stride bob/roll, attack chest twist, charge coil, lunge/dash lean
+        setMobBone(b.spine, 0.05 * Math.sin(_pbPh * 2) * mv, 0, 0.05 * Math.sin(_pbPh) * mv);
+        setMobBone(b.chest, 0.04 * Math.sin(_pbPh * 2 + 0.5) * mv, 0, 0.04 * Math.sin(_pbPh) * mv);
+        setMobBone(b.head, 0, 0, -0.04 * Math.sin(_pbPh) * mv);
+        grabPoseMob(b.spine, sw * 0.30 - cr * 0.22, 0.30 * lunge + 0.18 * dash - 0.10 * cr);
+        grabPoseMob(b.chest, sw * 0.55 - cr * 0.34, 0.34 * lunge + 0.12 * dash);
+        grabPoseMob(b.head, -sw * 0.35 + cr * 0.18, 0);
+        for (let i = 0; i < b.extras.length; i += 1) {
+          const o = b.extras[i], ud = o.userData || {};
+          if (ud.bipedDepth !== undefined) { // LEGS: alternating stride along the LOCAL move direction
+            const off = (ud.bipedSide || 1) > 0 ? 0 : Math.PI;
+            const str = Math.sin(_pbPh + off), amp = 0.5 * mv;
+            const kc = Math.max(0, Math.cos(_pbPh + off - 0.5));
+            setMobBone(o, 0, 0, 0);
+            if (ud.bipedDepth === 0) grabPoseMob(o, 0, str * amp * lf + 0.20 * lunge + 0.12 * dash, -str * amp * lr); // thigh: pitch with the fwd component, roll with the strafe component
+            else if (ud.bipedDepth === 1) grabPoseMob(o, 0, -kc * kc * amp * (0.55 * Math.abs(lf) + 0.30 * Math.abs(lr))); // knee folds through the swing
+            else grabPoseMob(o, 0, kc * kc * 0.25 * amp); // foot counter-flex (toes clear the ground)
+            continue;
+          }
+          if (ud.armDepth !== undefined) {
+            const side = ud.gSide || 1, axeArm = side < 0; // hand-R chain carries the axe
+            const counter = Math.sin(_pbPh + (side > 0 ? Math.PI : 0)) * 0.30 * mv * Math.max(Math.abs(lf), 0.4);
+            setMobBone(o, 0, 0, 0);
+            if (axeArm) { // walk counter-swing -> charge COIL (axe up over the shoulder) -> release/attack WHIP across
+              const whip = sw * (ud.armDepth === 0 ? 1 : 1.35); // the hand lags + amplifies the shoulder
+              grabPoseMob(o, whip * 0.9, counter * (1 - Math.abs(sw)) * (1 - cr) - cr * (ud.armDepth === 0 ? 0.85 : 0.45) - whip * 0.25 + 0.15 * lunge, cr * 0.3);
+            } else {
+              grabPoseMob(o, -sw * 0.3, counter + 0.10 * lunge, 0); // free arm counter-balances
+            }
+          }
         }
       }
 
